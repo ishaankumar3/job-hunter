@@ -599,6 +599,15 @@ def run():
 
     fresh_jobs.sort(key=lambda j: j["_score"], reverse=True)
 
+    # ── Sponsorship license filter ────────────────────────────────
+    log.info("Running sponsorship license checks...")
+    try:
+        from sponsorship_check import filter_by_sponsorship
+        fresh_jobs = filter_by_sponsorship(fresh_jobs, include_unknown=True)
+        log.info(f"After sponsorship filter: {len(fresh_jobs)} jobs remain")
+    except Exception as e:
+        log.error(f"Sponsorship check failed (continuing without): {e}")
+
     top_jobs = fresh_jobs[:JOBS_PER_EMAIL]
     log.info(f"Top jobs selected for email: {len(top_jobs)}")
 
@@ -650,34 +659,49 @@ def build_email_html(jobs: list, application_packs: list = None) -> str:
         for s, c in source_counts.items()
     )
 
+    # Sponsorship badge builder
+    SPONS_STYLES = {
+        "CONFIRMED": ("VISA SPONSOR CONFIRMED", "#276749", "#c6f6d5", "#38a169"),
+        "LIKELY":    ("LIKELY SPONSOR",         "#744210", "#fefcbf", "#d69e2e"),
+        "UNKNOWN":   ("VERIFY SPONSORSHIP",     "#63504c", "#fff5f5", "#c53030"),
+    }
+
     cards = ""
     for i, job in enumerate(jobs, 1):
         priority = "HIGH PRIORITY" if job["title"] in HIGH_PRIORITY or any(t.lower() in job["title"].lower() for t in HIGH_PRIORITY) else "Secondary"
         priority_color = "#1a6fa8" if "HIGH" in priority else "#6c757d"
         priority_badge = f'<span style="font-size:10px;font-weight:700;color:{priority_color};text-transform:uppercase;letter-spacing:0.5px">{priority}</span>'
-
         source_badge = f'<span style="background:#f0f4f8;color:#5a6473;font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600">{job["source"]}</span>'
 
-        cards += f"""
-        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:20px;margin-bottom:16px;border-left:4px solid #1a6fa8;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">
-            <span style="font-size:13px;font-weight:800;color:#1a2636;line-height:1.3">#{i} · {job['title']}</span>
-            {source_badge}
-          </div>
-          <div style="margin:6px 0 4px;font-size:13px;color:#374151">
-            🏢 <strong>{job['company']}</strong> &nbsp;|&nbsp; 📍 {job['location']}
-          </div>
-          <div style="margin-bottom:8px;font-size:13px;color:#374151">
-            💷 <strong>{job['salary']}</strong> &nbsp;|&nbsp; {priority_badge}
-          </div>
-          <p style="font-size:12px;color:#5a6473;margin:0 0 12px;line-height:1.5">
-            {job['description'][:220].strip()}{'...' if len(job['description']) > 220 else ''}
-          </p>
-          <a href="{job['url']}" style="background:#1a6fa8;color:#ffffff;padding:8px 18px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:700;display:inline-block">
-            View & Apply →
-          </a>
-        </div>
-        """
+        # Sponsorship badge
+        spons_status = job.get("sponsorship_status", "UNKNOWN")
+        spons_reason = job.get("sponsorship_reason", "")
+        spons_label, spons_text, spons_bg, spons_border = SPONS_STYLES.get(spons_status, SPONS_STYLES["UNKNOWN"])
+        spons_badge = (
+            f'<div style="margin:6px 0 8px">' +
+            f'<span style="background:{spons_bg};color:{spons_text};border:1px solid {spons_border};' +
+            f'padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800">{spons_label}</span>' +
+            (f'<span style="font-size:10px;color:#6b7280;margin-left:6px">{spons_reason[:80]}{"..." if len(spons_reason)>80 else ""}</span>' if spons_reason else '') +
+            f'</div>'
+        )
+
+        cards += (
+            f'<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;' +
+            f'padding:20px;margin-bottom:16px;border-left:4px solid {spons_border};">' +
+            f'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">' +
+            f'<span style="font-size:13px;font-weight:800;color:#1a2636;line-height:1.3">#{i} · {job["title"]}</span>' +
+            f'{source_badge}</div>' +
+            f'<div style="margin:6px 0 4px;font-size:13px;color:#374151">' +
+            f'<strong>{job["company"]}</strong> &nbsp;|&nbsp; {job["location"]}</div>' +
+            f'<div style="margin-bottom:4px;font-size:13px;color:#374151">' +
+            f'<strong>{job["salary"]}</strong> &nbsp;|&nbsp; {priority_badge}</div>' +
+            spons_badge +
+            f'<p style="font-size:12px;color:#5a6473;margin:0 0 12px;line-height:1.5">' +
+            f'{job["description"][:220].strip()}{"..." if len(job["description"]) > 220 else ""}</p>' +
+            f'<a href="{job["url"]}" style="background:#1a6fa8;color:#ffffff;padding:8px 18px;' +
+            f'border-radius:6px;text-decoration:none;font-size:12px;font-weight:700;display:inline-block">' +
+            f'View &amp; Apply</a></div>'
+        )
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
