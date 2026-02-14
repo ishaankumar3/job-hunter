@@ -38,6 +38,7 @@ ADZUNA_APP_KEY   = os.environ.get("ADZUNA_APP_KEY", "")      # Free from api.adz
 REED_API_KEY     = os.environ.get("REED_API_KEY", "")        # Free from reed.co.uk/developers
 SEEN_JOBS_FILE   = "seen_jobs.json"
 JOBS_PER_EMAIL   = 20
+FETCH_POOL_SIZE  = 120  # fetch this many before filtering to guarantee 20 after
 SALARY_MIN       = 42000
 SALARY_MAX       = 55000
 
@@ -189,12 +190,12 @@ def fetch_adzuna_uk() -> list:
     jobs = []
     base = "https://api.adzuna.com/v1/api/jobs/gb/search/1"
 
-    for query in SEARCH_QUERIES[:4]:  # limit to 4 queries max
+    for query in SEARCH_QUERIES[:6]:  # use 6 queries for larger pool
         try:
             params = {
                 "app_id": ADZUNA_APP_ID,
                 "app_key": ADZUNA_APP_KEY,
-                "results_per_page": 20,
+                "results_per_page": 50,
                 "what": query,
                 "where": "London",
                 "distance": 60,
@@ -243,7 +244,7 @@ def fetch_adzuna_eu() -> list:
             params = {
                 "app_id": ADZUNA_APP_ID,
                 "app_key": ADZUNA_APP_KEY,
-                "results_per_page": 10,
+                "results_per_page": 25,
                 "what": "water engineer",
                 "sort_by": "date",
                 "content-type": "application/json",
@@ -293,7 +294,7 @@ def fetch_reed() -> list:
                 "distancefromLocation": 50,
                 "minimumSalary": SALARY_MIN,
                 "maximumSalary": SALARY_MAX,
-                "resultsToTake": 20,
+                "resultsToTake": 50,
             }
             r = requests.get(base, params=params, auth=(REED_API_KEY, ""), timeout=15)
             r.raise_for_status()
@@ -603,10 +604,20 @@ def run():
     log.info("Running sponsorship license checks...")
     try:
         from sponsorship_check import filter_by_sponsorship
-        fresh_jobs = filter_by_sponsorship(fresh_jobs, include_unknown=True)
+        fresh_jobs = filter_by_sponsorship(fresh_jobs, include_unknown=True, target_count=FETCH_POOL_SIZE)
         log.info(f"After sponsorship filter: {len(fresh_jobs)} jobs remain")
     except Exception as e:
         log.error(f"Sponsorship check failed (continuing without): {e}")
+
+    # ── Guarantee exactly 20 jobs ────────────────────────────────
+    # If sponsorship filter reduced the pool below 20, backfill from
+    # the original scored list (excluding already-included job IDs)
+    if len(fresh_jobs) < JOBS_PER_EMAIL:
+        already_in = {j.get("_id") for j in fresh_jobs}
+        # Re-add UNKNOWN-status jobs we may have excluded, scored highest first
+        backfill = [j for j in fresh_jobs if j.get("_id") not in already_in]
+        fresh_jobs = (fresh_jobs + backfill)[:JOBS_PER_EMAIL]
+        log.info(f"Backfilled to {len(fresh_jobs)} jobs")
 
     top_jobs = fresh_jobs[:JOBS_PER_EMAIL]
     log.info(f"Top jobs selected for email: {len(top_jobs)}")
