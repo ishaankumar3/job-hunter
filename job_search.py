@@ -629,58 +629,88 @@ def run():
     # ── Generate tailored CV + cover letter for ALL 20 jobs ─────
     application_packs = []
     zip_path = None
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        log.info(f"Generating tailored application packs for all {len(top_jobs)} jobs in parallel...")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    log.info("=" * 50)
+    log.info("[CV] Starting application pack generation")
+    log.info("[CV] ANTHROPIC_API_KEY present: %s (length=%d)", bool(api_key), len(api_key))
+    log.info("[CV] Jobs to process: %d", len(top_jobs))
+    log.info("=" * 50)
+
+    if not api_key:
+        log.warning("[CV] ANTHROPIC_API_KEY not set in GitHub Secrets - no CVs generated")
+    else:
+        log.info("[CV] Step A: Importing tailor_cv module...")
+        generate_application_pack = None
         try:
             from tailor_cv import generate_application_pack
-            from concurrent.futures import ThreadPoolExecutor, as_completed
+            log.info("[CV] Step A: tailor_cv imported OK")
+        except Exception as import_err:
+            import traceback as _tb
+            log.error("[CV] Step A FAILED - cannot import tailor_cv: %s", import_err)
+            log.error(_tb.format_exc())
 
+        if generate_application_pack is not None:
             pack_dir = "application_packs"
             os.makedirs(pack_dir, exist_ok=True)
+            log.info("[CV] Step B: Output dir: %s", os.path.abspath(pack_dir))
 
-            def _gen(idx_job):
-                idx, job = idx_job
+            log.info("[CV] Step C: Generating packs one by one...")
+            for idx, job in enumerate(top_jobs, 1):
+                log.info("[CV] %d/%d: %s @ %s", idx, len(top_jobs), job["title"], job["company"])
                 try:
                     pack = generate_application_pack(job, output_dir=pack_dir)
                     if pack:
                         pack["job_number"] = idx
-                        log.info(f"  [OK] #{idx} {pack['job_title']} @ {pack['company']}")
-                    return pack
-                except Exception as e:
-                    log.error(f"  [FAIL] #{idx} {job.get('title','?')}: {e}")
-                    return None
+                        application_packs.append(pack)
+                        log.info("[CV] %d/%d DONE", idx, len(top_jobs))
+                    else:
+                        log.warning("[CV] %d/%d returned None", idx, len(top_jobs))
+                except Exception as pack_err:
+                    import traceback as _tb
+                    log.error("[CV] %d/%d CRASHED: %s", idx, len(top_jobs), pack_err)
+                    log.error(_tb.format_exc())
 
-            with ThreadPoolExecutor(max_workers=5) as pool:
-                futures = {pool.submit(_gen, (i+1, job)): i for i, job in enumerate(top_jobs)}
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result:
-                        application_packs.append(result)
+            log.info("[CV] Step C done: %d packs generated", len(application_packs))
 
-            # Sort packs by job number so ZIP is ordered #1–#20
-            application_packs.sort(key=lambda p: p.get("job_number", 99))
-
-            # Bundle all docs into one organised ZIP
             if application_packs:
-                import zipfile
+                log.info("[CV] Step D: Building ZIP...")
+                import zipfile as _zf
                 today_str = datetime.now().strftime("%Y-%m-%d")
-                zip_path = f"Ishaan_Kumar_Applications_{today_str}.zip"
-                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                    for pack in application_packs:
-                        num = int(pack.get("job_number") or 0)
-                        safe_company = re.sub(r"[^\w]", "_", pack["company"])[:25]
-                        folder = f"{num:02d}_{safe_company}"
-                        if os.path.exists(pack.get("cv_path", "")):
-                            zf.write(pack["cv_path"], f"{folder}/CV_Ishaan_Kumar.docx")
-                        if os.path.exists(pack.get("cl_path", "")):
-                            zf.write(pack["cl_path"], f"{folder}/Cover_Letter_Ishaan_Kumar.docx")
-                log.info(f"[OK] ZIP created: {zip_path} with {len(application_packs)} packs")
+                zip_path = "Ishaan_Kumar_Applications_" + today_str + ".zip"
+                files_added = 0
+                try:
+                    with _zf.ZipFile(zip_path, "w", _zf.ZIP_DEFLATED) as zf:
+                        for pack in application_packs:
+                            num = int(pack.get("job_number") or 0)
+                            safe = re.sub(r"[^\w]", "_", pack.get("company", "Unknown"))[:20]
+                            folder = "%02d_%s" % (num, safe)
+                            cv = pack.get("cv_path", "")
+                            cl = pack.get("cl_path", "")
+                            if cv and os.path.exists(cv):
+                                zf.write(cv, folder + "/CV_Ishaan_Kumar.docx")
+                                files_added += 1
+                                log.info("[ZIP] + %s/CV", folder)
+                            else:
+                                log.warning("[ZIP] CV missing: %s", cv)
+                            if cl and os.path.exists(cl):
+                                zf.write(cl, folder + "/Cover_Letter_Ishaan_Kumar.docx")
+                                files_added += 1
+                                log.info("[ZIP] + %s/CL", folder)
+                            else:
+                                log.warning("[ZIP] CL missing: %s", cl)
+                    mb = os.path.getsize(zip_path) / (1024 * 1024)
+                    log.info("[CV] Step D DONE: %s (%d files, %.1fMB)", zip_path, files_added, mb)
+                except Exception as zip_err:
+                    import traceback as _tb
+                    log.error("[CV] Step D FAILED: %s", zip_err)
+                    log.error(_tb.format_exc())
+                    zip_path = None
+            else:
+                log.warning("[CV] No packs generated - ZIP skipped")
 
-        except Exception as e:
-            log.error(f"CV tailoring failed: {e}")
-    else:
-        log.warning("ANTHROPIC_API_KEY not set — skipping CV tailoring.")
-
+    log.info("[CV] COMPLETE: packs=%d zip=%s", len(application_packs), zip_path)
+    log.info("=" * 50)
     # ── Send email ────────────────────────────────────────────────
     send_email(top_jobs, application_packs, zip_path)
 
