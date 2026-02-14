@@ -626,24 +626,64 @@ def run():
         log.warning("No new jobs found today — skipping email")
         return
 
-    # ── Generate tailored CV + cover letter for top 3 jobs ───────
+    # ── Generate tailored CV + cover letter for ALL 20 jobs ─────
     application_packs = []
+    zip_path = None
     if os.environ.get("ANTHROPIC_API_KEY"):
-        log.info("Generating tailored application packs for top 3 jobs...")
+        log.info(f"Generating tailored application packs for all {len(top_jobs)} jobs in parallel...")
         try:
             from tailor_cv import generate_application_pack
-            for job in top_jobs[:3]:
-                pack = generate_application_pack(job, output_dir="application_packs")
-                if pack:
-                    application_packs.append(pack)
-                    log.info(f"  [OK] Pack ready: {pack['job_title']} @ {pack['company']}")
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            pack_dir = "application_packs"
+            os.makedirs(pack_dir, exist_ok=True)
+
+            def _gen(idx_job):
+                idx, job = idx_job
+                try:
+                    pack = generate_application_pack(job, output_dir=pack_dir)
+                    if pack:
+                        pack["job_number"] = idx
+                        log.info(f"  [OK] #{idx} {pack['job_title']} @ {pack['company']}")
+                    return pack
+                except Exception as e:
+                    log.error(f"  [FAIL] #{idx} {job.get('title','?')}: {e}")
+                    return None
+
+            with ThreadPoolExecutor(max_workers=5) as pool:
+                futures = {pool.submit(_gen, (i+1, job)): i for i, job in enumerate(top_jobs)}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        application_packs.append(result)
+
+            # Sort packs by job number so ZIP is ordered #1–#20
+            application_packs.sort(key=lambda p: p.get("job_number", 99))
+
+            # Bundle all docs into one organised ZIP
+            if application_packs:
+                import zipfile
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                zip_path = f"Ishaan_Kumar_Applications_{today_str}.zip"
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for pack in application_packs:
+                        num = pack.get("job_number", "?")
+                        folder = f"{num:02d}_{pack['company'].replace(' ','_')[:25]}"
+                        if os.path.exists(pack["cv_path"]):
+                            zf.write(pack["cv_path"],
+                                     f"{folder}/CV_Ishaan_Kumar.docx")
+                        if os.path.exists(pack["cl_path"]):
+                            zf.write(pack["cl_path"],
+                                     f"{folder}/Cover_Letter_Ishaan_Kumar.docx")
+                log.info(f"[OK] ZIP created: {zip_path} ({len(application_packs)} packs)")
+
         except Exception as e:
             log.error(f"CV tailoring failed: {e}")
     else:
-        log.warning("ANTHROPIC_API_KEY not set — skipping CV tailoring. Add it to GitHub Secrets.")
+        log.warning("ANTHROPIC_API_KEY not set — skipping CV tailoring.")
 
     # ── Send email ────────────────────────────────────────────────
-    send_email(top_jobs, application_packs)
+    send_email(top_jobs, application_packs, zip_path)
 
     # ── Update seen jobs ──────────────────────────────────────────
     seen.update(new_ids)
@@ -748,30 +788,25 @@ def build_email_html(jobs: list, application_packs: list = None) -> str:
         Aim for <strong>3 applications per day</strong> to hit your 30-day target.
       </div>
 
-      <!-- APPLICATION PACKS SECTION -->
+      <!-- APPLICATION PACKS BANNER -->
       {''.join([
-      '<div style="background:#f0fff4;border:1px solid #68d391;border-radius:10px;padding:20px;margin-bottom:16px;border-left:4px solid #38a169;">'
-      '<div style="font-size:13px;font-weight:800;color:#22543d;margin-bottom:8px">'
-      'Application Pack #' + str(i+1) + ' &mdash; ' + pack['job_title'] + ' @ ' + pack['company'] +
+        '<div style="background:#f0fff4;border:1px solid #68d391;border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:4px solid #38a169;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">' +
+        '<span style="font-size:12px;font-weight:800;color:#22543d">' +
+        '#' + str(pack.get('job_number','')) + ' &mdash; ' + pack['job_title'] + ' @ ' + pack['company'] + '</span>' +
+        '<span style="font-size:10px;background:#c6f6d5;color:#276749;padding:2px 8px;border-radius:10px;font-weight:700">CV + Cover Letter Ready</span>' +
+        '</div>' +
+        '<div style="margin-top:6px;font-size:10px;color:#276749">' +
+        'ATS Keywords: ' + ' '.join(['<span style="background:#e6fffa;color:#234e52;padding:1px 6px;border-radius:8px;margin:1px;display:inline-block">' + kw + '</span>' for kw in pack.get('ats_keywords', [])[:6]]) +
+        '</div></div>'
+        for pack in application_packs
+      ]) if application_packs else
+      '<div style="background:#f7faff;border:1px solid #bee3f8;border-radius:8px;padding:14px 18px;margin-bottom:16px;font-size:12px;color:#2c5282">'
+      '<strong>CV Tailoring:</strong> Add <code>ANTHROPIC_API_KEY</code> to GitHub Secrets to receive tailored CVs and cover letters for all 20 jobs daily.'
       '</div>'
-      '<div style="font-size:12px;color:#276749;margin-bottom:8px">'
-      'Tailored CV attached &nbsp;|&nbsp; Cover letter attached'
-      '</div>'
-      + ''.join(['<span style="background:#c6f6d5;color:#22543d;padding:2px 8px;border-radius:10px;font-size:10px;margin:2px;display:inline-block">#' + kw + '</span>' for kw in pack.get('ats_keywords', [])[:8]]) +
-      '<div style="margin-top:8px;font-size:11px;color:#276749">'
-      'ATS keywords above are woven throughout your tailored CV &mdash; reference them in interviews too.'
-      '</div>'
-      '</div>'
-      for i, pack in enumerate(application_packs)]) if application_packs else ''}
+      }
 
-      <!-- APPLICATION PACKS PROMO (if no packs) -->
-      {'' if application_packs else '''
-      <div style="background:#f7faff;border:1px solid #bee3f8;border-radius:8px;padding:14px 18px;margin-bottom:16px;font-size:12px;color:#2c5282">
-        <strong>🤖 Tailored CV & Cover Letter feature:</strong> Add your <code>ANTHROPIC_API_KEY</code> to GitHub Secrets to automatically receive a tailored CV + personalised cover letter for your top 3 jobs every day, attached as Word documents.
-      </div>
-      '''}
-
-      {cards}
+            {cards}
 
       <!-- FOOTER NOTE -->
       <div style="background:#e8f4fd;border-radius:8px;padding:14px 18px;margin-top:8px;font-size:12px;color:#1a3a5c">
@@ -795,7 +830,7 @@ def build_email_html(jobs: list, application_packs: list = None) -> str:
     return html
 
 
-def send_email(jobs: list, application_packs: list = None):
+def send_email(jobs: list, application_packs: list = None, zip_path: str = None):
     application_packs = application_packs or []
 
     if not EMAIL_FROM or not EMAIL_PASSWORD:
@@ -807,62 +842,62 @@ def send_email(jobs: list, application_packs: list = None):
 
     today = datetime.now().strftime("%d %B %Y")
     pack_count = len(application_packs)
-    subject = f"[JOBS] {len(jobs)} New Water Engineering Jobs + {pack_count} Tailored CVs — {today}"
+    zip_size   = ""
+    if zip_path and os.path.exists(zip_path):
+        mb = os.path.getsize(zip_path) / (1024 * 1024)
+        zip_size = f" ({mb:.1f}MB)"
 
-    # Use 'mixed' to support attachments
+    subject = (
+        f"[JOBS] {len(jobs)} Water Engineering Jobs + {pack_count} Tailored CVs & Cover Letters — {today}"
+        if pack_count else
+        f"[JOBS] {len(jobs)} New Water Engineering Jobs — {today}"
+    )
+
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"]    = EMAIL_FROM
     msg["To"]      = EMAIL_TO
 
-    # Attach HTML body
-    body_part = MIMEMultipart("alternative")
-    plain_lines = [f"Your Daily Job Digest — {today}\n{'='*50}"]
+    # ── Plain text body ───────────────────────────────────────────
+    plain_lines = [f"Your Daily Job Digest — {today}", "=" * 50]
     for i, job in enumerate(jobs, 1):
-        plain_lines.append(f"\n#{i} {job['title']}")
-        plain_lines.append(f"  Company:  {job['company']}")
-        plain_lines.append(f"  Location: {job['location']}")
-        plain_lines.append(f"  Salary:   {job['salary']}")
-        plain_lines.append(f"  Source:   {job['source']}")
-        plain_lines.append(f"  Link:     {job['url']}")
-    if application_packs:
-        plain_lines.append(f"\n\n{'='*50}")
-        plain_lines.append("YOUR TAILORED APPLICATION PACKS (attached):")
-        for p in application_packs:
-            plain_lines.append(f"\n  {p['job_title']} @ {p['company']}")
-            plain_lines.append(f"  CV:           {os.path.basename(p['cv_path'])}")
-            plain_lines.append(f"  Cover Letter: {os.path.basename(p['cl_path'])}")
+        plain_lines.append(f"\n#{i} {job['title']} @ {job['company']}")
+        plain_lines.append(f"   Location: {job['location']}  |  Salary: {job['salary']}")
+        plain_lines.append(f"   Sponsor:  {job.get('sponsorship_status','?')} — {job.get('sponsorship_reason','')[:60]}")
+        plain_lines.append(f"   Link:     {job['url']}")
+    if pack_count:
+        plain_lines += ["", "=" * 50,
+                        f"ATTACHED: {zip_path or 'application_packs.zip'}{zip_size}",
+                        f"Contains {pack_count} tailored CVs + {pack_count} cover letters.",
+                        "Each folder = one job. Open in Word, review, then send!"]
 
+    body_part = MIMEMultipart("alternative")
     body_part.attach(MIMEText("\n".join(plain_lines), "plain"))
     body_part.attach(MIMEText(build_email_html(jobs, application_packs), "html"))
     msg.attach(body_part)
 
-    # ── Attach Word documents ─────────────────────────────────────
+    # ── Attach single ZIP file ────────────────────────────────────
     from email.mime.base import MIMEBase
     from email import encoders
 
-    for pack in application_packs:
-        for filepath, label in [(pack["cv_path"], "CV"), (pack["cl_path"], "Cover Letter")]:
-            if os.path.exists(filepath):
-                try:
-                    with open(filepath, "rb") as f:
-                        part = MIMEBase("application",
-                                        "vnd.openxmlformats-officedocument.wordprocessingml.document")
-                        part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    filename = os.path.basename(filepath)
-                    part.add_header("Content-Disposition", "attachment",
-                                    filename=filename)
-                    msg.attach(part)
-                    log.info(f"  [ATTACHED]: {filename}")
-                except Exception as e:
-                    log.error(f"Failed to attach {filepath}: {e}")
+    if zip_path and os.path.exists(zip_path):
+        try:
+            with open(zip_path, "rb") as f:
+                part = MIMEBase("application", "zip")
+                part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment",
+                            filename=os.path.basename(zip_path))
+            msg.attach(part)
+            log.info(f"[ATTACHED] {zip_path}{zip_size}")
+        except Exception as e:
+            log.error(f"Failed to attach ZIP: {e}")
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
             server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-        log.info(f"[OK] Email sent to {EMAIL_TO} with {len(application_packs)*2} attachments")
+        log.info(f"[OK] Email sent to {EMAIL_TO} — {pack_count} packs in ZIP{zip_size}")
     except Exception as e:
         log.error(f"Failed to send email: {e}")
         raise
