@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 ====================================================
  Daily Job Search Automation — Ishaan Kumar
@@ -615,7 +616,7 @@ def run():
                 pack = generate_application_pack(job, output_dir="application_packs")
                 if pack:
                     application_packs.append(pack)
-                    log.info(f"  ✅ Pack ready: {pack['job_title']} @ {pack['company']}")
+                    log.info(f"  [OK] Pack ready: {pack['job_title']} @ {pack['company']}")
         except Exception as e:
             log.error(f"CV tailoring failed: {e}")
     else:
@@ -628,7 +629,7 @@ def run():
     seen.update(new_ids)
     save_seen(seen)
 
-    log.info("✅ Done! Email sent and seen_jobs.json updated.")
+    log.info("[DONE] Email sent and seen_jobs.json updated.")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -651,7 +652,7 @@ def build_email_html(jobs: list, application_packs: list = None) -> str:
 
     cards = ""
     for i, job in enumerate(jobs, 1):
-        priority = "⭐ HIGH PRIORITY" if job["title"] in HIGH_PRIORITY or any(t.lower() in job["title"].lower() for t in HIGH_PRIORITY) else "Secondary"
+        priority = "HIGH PRIORITY" if job["title"] in HIGH_PRIORITY or any(t.lower() in job["title"].lower() for t in HIGH_PRIORITY) else "Secondary"
         priority_color = "#1a6fa8" if "HIGH" in priority else "#6c757d"
         priority_badge = f'<span style="font-size:10px;font-weight:700;color:{priority_color};text-transform:uppercase;letter-spacing:0.5px">{priority}</span>'
 
@@ -708,25 +709,25 @@ def build_email_html(jobs: list, application_packs: list = None) -> str:
 
       <!-- TIPS BOX -->
       <div style="background:#fff8e7;border:1px solid #ffd966;border-radius:8px;padding:14px 18px;margin-bottom:20px;font-size:12px;color:#7a5a00">
-        <strong>💡 30-Day Plan Tip:</strong> Focus your first application energy on the ⭐ HIGH PRIORITY roles — these match your NAV/Self-Lay profile most closely.
+        <strong>💡 30-Day Plan Tip:</strong> Focus your first application energy on the HIGH PRIORITY roles — these match your NAV/Self-Lay profile most closely.
         Aim for <strong>3 applications per day</strong> to hit your 30-day target.
       </div>
 
       <!-- APPLICATION PACKS SECTION -->
-      {''.join([f"""
-      <div style="background:#f0fff4;border:1px solid #68d391;border-radius:10px;padding:20px;margin-bottom:16px;border-left:4px solid #38a169;">
-        <div style="font-size:13px;font-weight:800;color:#22543d;margin-bottom:8px">
-          📎 Application Pack #{i+1} — {pack['job_title']} @ {pack['company']}
-        </div>
-        <div style="font-size:12px;color:#276749;margin-bottom:8px">
-          ✅ Tailored CV attached &nbsp;|&nbsp; ✅ Cover letter attached
-        </div>
-        {''.join([f'<span style="background:#c6f6d5;color:#22543d;padding:2px 8px;border-radius:10px;font-size:10px;margin:2px;display:inline-block">#{kw}</span>' for kw in pack.get('ats_keywords', [])[:8]])}
-        <div style="margin-top:8px;font-size:11px;color:#276749">
-          💡 ATS keywords above are woven throughout your tailored CV — make sure to reference them in interviews too.
-        </div>
-      </div>
-      """ for i, pack in enumerate(application_packs)]) if application_packs else ''}
+      {''.join([
+      '<div style="background:#f0fff4;border:1px solid #68d391;border-radius:10px;padding:20px;margin-bottom:16px;border-left:4px solid #38a169;">'
+      '<div style="font-size:13px;font-weight:800;color:#22543d;margin-bottom:8px">'
+      'Application Pack #' + str(i+1) + ' &mdash; ' + pack['job_title'] + ' @ ' + pack['company'] +
+      '</div>'
+      '<div style="font-size:12px;color:#276749;margin-bottom:8px">'
+      'Tailored CV attached &nbsp;|&nbsp; Cover letter attached'
+      '</div>'
+      + ''.join(['<span style="background:#c6f6d5;color:#22543d;padding:2px 8px;border-radius:10px;font-size:10px;margin:2px;display:inline-block">#' + kw + '</span>' for kw in pack.get('ats_keywords', [])[:8]]) +
+      '<div style="margin-top:8px;font-size:11px;color:#276749">'
+      'ATS keywords above are woven throughout your tailored CV &mdash; reference them in interviews too.'
+      '</div>'
+      '</div>'
+      for i, pack in enumerate(application_packs)]) if application_packs else ''}
 
       <!-- APPLICATION PACKS PROMO (if no packs) -->
       {'' if application_packs else '''
@@ -771,7 +772,7 @@ def send_email(jobs: list, application_packs: list = None):
 
     today = datetime.now().strftime("%d %B %Y")
     pack_count = len(application_packs)
-    subject = f"🔎 {len(jobs)} New Water Engineering Jobs + {pack_count} Tailored CVs — {today}"
+    subject = f"[JOBS] {len(jobs)} New Water Engineering Jobs + {pack_count} Tailored CVs — {today}"
 
     # Use 'mixed' to support attachments
     msg = MIMEMultipart("mixed")
@@ -818,7 +819,7 @@ def send_email(jobs: list, application_packs: list = None):
                     part.add_header("Content-Disposition", "attachment",
                                     filename=filename)
                     msg.attach(part)
-                    log.info(f"  📎 Attached: {filename}")
+                    log.info(f"  [ATTACHED]: {filename}")
                 except Exception as e:
                     log.error(f"Failed to attach {filepath}: {e}")
 
@@ -826,7 +827,7 @@ def send_email(jobs: list, application_packs: list = None):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
             server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-        log.info(f"✅ Email sent to {EMAIL_TO} with {len(application_packs)*2} attachments")
+        log.info(f"[OK] Email sent to {EMAIL_TO} with {len(application_packs)*2} attachments")
     except Exception as e:
         log.error(f"Failed to send email: {e}")
         raise
@@ -911,7 +912,7 @@ def run_with_cv_generation():
     # ── Update seen jobs ──────────────────────────────────────────
     seen.update(new_ids)
     save_seen(seen)
-    log.info("✅ All done!")
+    log.info("[DONE] All done!")
 
 
 def send_email_with_attachment(jobs: list, zip_path: str = None):
@@ -928,8 +929,8 @@ def send_email_with_attachment(jobs: list, zip_path: str = None):
 
     today = datetime.now().strftime("%d %B %Y")
     doc_count = len(jobs) * 2 if zip_path else 0
-    subject = f"🔎 {len(jobs)} New Jobs + {doc_count} Tailored Docs — {today}" if zip_path else \
-              f"🔎 {len(jobs)} New Water Engineering Jobs — {today}"
+    subject = f"[JOBS] {len(jobs)} New Jobs + {doc_count} Tailored Docs — {today}" if zip_path else \
+              f"[JOBS] {len(jobs)} New Water Engineering Jobs — {today}"
 
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
@@ -959,7 +960,7 @@ def send_email_with_attachment(jobs: list, zip_path: str = None):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
             server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-        log.info(f"✅ Email sent to {EMAIL_TO}")
+        log.info(f"[OK] Email sent to {EMAIL_TO}")
     except Exception as e:
         log.error(f"Email failed: {e}")
         raise
