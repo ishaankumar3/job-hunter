@@ -7,7 +7,7 @@ jobs:
   search-and-email:
     name: Search Jobs & Send Email
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Repository
@@ -30,14 +30,24 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Job Search
+      - name: Run Job Search + CV Tailoring
         env:
-          EMAIL_FROM:     ${{ secrets.EMAIL_FROM }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          ADZUNA_APP_ID:  ${{ secrets.ADZUNA_APP_ID }}
-          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
-          REED_API_KEY:   ${{ secrets.REED_API_KEY }}
+          EMAIL_FROM:        ${{ secrets.EMAIL_FROM }}
+          EMAIL_PASSWORD:    ${{ secrets.EMAIL_PASSWORD }}
+          ADZUNA_APP_ID:     ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY:    ${{ secrets.ADZUNA_APP_KEY }}
+          REED_API_KEY:      ${{ secrets.REED_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python job_search.py
+
+      - name: Upload Application Packs as Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-packs-${{ github.run_id }}
+          path: application_packs/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload Email Preview
         if: always()
