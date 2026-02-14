@@ -1,1 +1,49 @@
+"on":
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
 
+jobs:
+  search-and-email:
+    name: Search Jobs & Send Email
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Restore Seen Jobs Cache
+        uses: actions/cache@v4
+        with:
+          path: seen_jobs.json
+          key: seen-jobs-${{ runner.os }}
+          restore-keys: |
+            seen-jobs-
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Job Search
+        env:
+          EMAIL_FROM:     ${{ secrets.EMAIL_FROM }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          ADZUNA_APP_ID:  ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          REED_API_KEY:   ${{ secrets.REED_API_KEY }}
+        run: python job_search.py
+
+      - name: Upload Email Preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: email-preview-${{ github.run_id }}
+          path: email_preview.html
+          if-no-files-found: ignore
+          retention-days: 7
