@@ -385,42 +385,65 @@ def check_job_sponsorship(job: dict, uk_register: set) -> dict:
 #  BATCH CHECK + FILTER
 # ═══════════════════════════════════════════════════════════════════
 
-def filter_by_sponsorship(jobs: list, include_unknown: bool = True) -> list:
+def filter_by_sponsorship(jobs: list, include_unknown: bool = True,
+                          target_count: int = 20) -> list:
     """
     Check all jobs for sponsorship and filter/sort by status.
+    Always tries to return at least target_count jobs.
 
-    include_unknown: if True, keep UNKNOWN jobs (flagged in email).
-                     if False, only keep CONFIRMED and LIKELY.
+    Priority order:
+      1. CONFIRMED (on official UK sponsor register)
+      2. LIKELY    (strong signals in job text / known large employers)
+      3. UNKNOWN   (cannot confirm — included but clearly flagged)
+      4. NO        (explicitly states no sponsorship — always excluded)
     """
     log.info("Loading UK sponsor register...")
     uk_register = load_uk_register()
     log.info(f"Register loaded: {len(uk_register)} licensed sponsors")
 
-    results = []
-    counts = {"CONFIRMED": 0, "LIKELY": 0, "UNKNOWN": 0, "NO": 0}
+    confirmed = []
+    likely    = []
+    unknown   = []
+    excluded  = []
+    counts    = {"CONFIRMED": 0, "LIKELY": 0, "UNKNOWN": 0, "NO": 0}
 
     for job in jobs:
         enriched = check_job_sponsorship(job, uk_register)
-        status = enriched["sponsorship_status"]
+        status   = enriched["sponsorship_status"]
         counts[status] = counts.get(status, 0) + 1
 
         if status == "NO":
-            log.info(f"  [SKIP - NO SPONSORSHIP] {job['title']} @ {job['company']}")
-            continue  # Always exclude explicit no-sponsorship jobs
+            log.info(f"  [EXCLUDED - NO SPONSORSHIP] {job['title']} @ {job['company']}")
+            excluded.append(enriched)
+        elif status == "CONFIRMED":
+            confirmed.append(enriched)
+        elif status == "LIKELY":
+            likely.append(enriched)
+        else:
+            unknown.append(enriched)
 
-        if status == "UNKNOWN" and not include_unknown:
-            continue
+    log.info(
+        f"Sponsorship results: CONFIRMED={counts['CONFIRMED']}, "
+        f"LIKELY={counts['LIKELY']}, UNKNOWN={counts['UNKNOWN']}, "
+        f"EXCLUDED={counts['NO']}"
+    )
 
-        results.append(enriched)
+    # Build result list — CONFIRMED first, then LIKELY, then UNKNOWN
+    # Keep adding tiers until we reach target_count
+    results = confirmed + likely
 
-    log.info(f"Sponsorship filter results: CONFIRMED={counts['CONFIRMED']}, "
-             f"LIKELY={counts['LIKELY']}, UNKNOWN={counts['UNKNOWN']}, "
-             f"EXCLUDED(NO)={counts['NO']}")
+    if len(results) < target_count:
+        needed = target_count - len(results)
+        log.info(f"Only {len(results)} confirmed/likely — backfilling {needed} UNKNOWN jobs")
+        results += unknown[:needed]
 
-    # Sort: CONFIRMED first, then LIKELY, then UNKNOWN
-    order = {"CONFIRMED": 0, "LIKELY": 1, "UNKNOWN": 2}
-    results.sort(key=lambda j: order.get(j.get("sponsorship_status", "UNKNOWN"), 2))
+    if len(results) < target_count:
+        log.warning(
+            f"Could only find {len(results)} sponsorship-eligible jobs today "
+            f"(target was {target_count})"
+        )
 
+    log.info(f"Final pool after sponsorship filter: {len(results)} jobs")
     return results
 
 
