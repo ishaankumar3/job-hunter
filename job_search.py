@@ -188,7 +188,7 @@ def fetch_adzuna_uk() -> list:
     jobs = []
     base = "https://api.adzuna.com/v1/api/jobs/gb/search/1"
 
-    for query in SEARCH_QUERIES[:6]:  # limit API calls
+    for query in SEARCH_QUERIES[:4]:  # limit to 4 queries max
         try:
             params = {
                 "app_id": ADZUNA_APP_ID,
@@ -221,7 +221,7 @@ def fetch_adzuna_uk() -> list:
                     "source":      "Adzuna UK",
                     "posted":      item.get("created", ""),
                 })
-            time.sleep(1)
+            pass  # removed sleep
         except Exception as e:
             log.error(f"Adzuna UK error for '{query}': {e}")
 
@@ -263,7 +263,7 @@ def fetch_adzuna_eu() -> list:
                     "source":      f"Adzuna {country_name}",
                     "posted":      item.get("created", ""),
                 })
-            time.sleep(1)
+            pass  # removed sleep
         except Exception as e:
             log.error(f"Adzuna {country_name} error: {e}")
 
@@ -311,7 +311,7 @@ def fetch_reed() -> list:
                     "source":      "Reed UK",
                     "posted":      item.get("date", ""),
                 })
-            time.sleep(1)
+            pass  # removed sleep
         except Exception as e:
             log.error(f"Reed error for '{query}': {e}")
 
@@ -370,13 +370,26 @@ RSS_FEEDS = [
 ]
 
 
+def _fetch_feed_safe(url: str, timeout: int = 8) -> list:
+    """Fetch an RSS feed with a hard timeout using requests first, then feedparser."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; JobHunterBot/1.0)"}
+        r = requests.get(url, timeout=timeout, headers=headers)
+        r.raise_for_status()
+        feed = feedparser.parse(r.content)
+        return feed.entries
+    except Exception as e:
+        log.warning(f"Feed fetch failed [{url[:60]}]: {e}")
+        return []
+
+
 def fetch_rss_feeds() -> list:
     jobs = []
     for source_name, url in RSS_FEEDS:
         try:
-            feed = feedparser.parse(url)
+            entries = _fetch_feed_safe(url, timeout=8)
             count = 0
-            for entry in feed.entries:
+            for entry in entries:
                 title   = entry.get("title", "")
                 summary = entry.get("summary", "") or entry.get("description", "")
                 link    = entry.get("link", "")
@@ -386,7 +399,6 @@ def fetch_rss_feeds() -> list:
                 if not title or not link:
                     continue
 
-                # Quick relevance filter — must contain at least one water/engineering keyword
                 combined = f"{title} {summary}".lower()
                 if not any(k in combined for k in ["water", "hydraulic", "drainage", "utility", "utilities", "infrastructure", "engineer"]):
                     continue
@@ -406,7 +418,6 @@ def fetch_rss_feeds() -> list:
                 count += 1
 
             log.info(f"{source_name}: {count} items")
-            time.sleep(0.5)
 
         except Exception as e:
             log.error(f"RSS error [{source_name}]: {e}")
@@ -416,19 +427,11 @@ def fetch_rss_feeds() -> list:
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  SOURCE 4 — ADDITIONAL SPECIALIST BOARDS (direct scraping)
+#  SOURCE 4 — ADDITIONAL SPECIALIST BOARDS
 # ═══════════════════════════════════════════════════════════════════
 
 SPECIALIST_FEEDS = [
-    # Water Utilities Jobs
-    ("WaterUK Jobs",      "https://jobs.water.org.uk/jobs/feed/"),
-    # Civil Engineering Jobs
-    ("CE Jobs",           "https://www.civil.engineering.com/jobs/rss?keywords=water+engineer&location=London"),
-    # Environment Jobs
     ("Environment Jobs",  "https://www.environmentjob.co.uk/jobs.rss?keywords=water+engineer"),
-    # Jobs in Water
-    ("Jobs in Water",     "https://www.jobsinwater.com/rss/feed.php?search=water+engineer&location=UK"),
-    # Utility Professionals
     ("Utility People",    "https://www.utilitypeople.co.uk/jobs/feed/?keywords=water+engineer"),
 ]
 
@@ -437,8 +440,8 @@ def fetch_specialist_boards() -> list:
     jobs = []
     for source_name, url in SPECIALIST_FEEDS:
         try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries:
+            entries = _fetch_feed_safe(url, timeout=8)
+            for entry in entries:
                 title   = entry.get("title", "")
                 summary = entry.get("summary", "") or entry.get("description", "")
                 link    = entry.get("link", "")
@@ -456,8 +459,7 @@ def fetch_specialist_boards() -> list:
                     "source":      source_name,
                     "posted":      entry.get("published", ""),
                 })
-            log.info(f"{source_name}: {len(feed.entries)} items")
-            time.sleep(0.5)
+            log.info(f"{source_name}: {len(entries)} items")
         except Exception as e:
             log.error(f"Specialist board error [{source_name}]: {e}")
 
@@ -603,8 +605,24 @@ def run():
         log.warning("No new jobs found today — skipping email")
         return
 
+    # ── Generate tailored CV + cover letter for top 3 jobs ───────
+    application_packs = []
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        log.info("Generating tailored application packs for top 3 jobs...")
+        try:
+            from tailor_cv import generate_application_pack
+            for job in top_jobs[:3]:
+                pack = generate_application_pack(job, output_dir="application_packs")
+                if pack:
+                    application_packs.append(pack)
+                    log.info(f"  ✅ Pack ready: {pack['job_title']} @ {pack['company']}")
+        except Exception as e:
+            log.error(f"CV tailoring failed: {e}")
+    else:
+        log.warning("ANTHROPIC_API_KEY not set — skipping CV tailoring. Add it to GitHub Secrets.")
+
     # ── Send email ────────────────────────────────────────────────
-    send_email(top_jobs)
+    send_email(top_jobs, application_packs)
 
     # ── Update seen jobs ──────────────────────────────────────────
     seen.update(new_ids)
@@ -617,7 +635,8 @@ def run():
 #  EMAIL BUILDER — beautiful HTML digest
 # ═══════════════════════════════════════════════════════════════════
 
-def build_email_html(jobs: list) -> str:
+def build_email_html(jobs: list, application_packs: list = None) -> str:
+    application_packs = application_packs or []
     today = datetime.now().strftime("%A %d %B %Y")
     day_number = datetime.now().day  # approximate day in 30-day plan
 
@@ -693,6 +712,29 @@ def build_email_html(jobs: list) -> str:
         Aim for <strong>3 applications per day</strong> to hit your 30-day target.
       </div>
 
+      <!-- APPLICATION PACKS SECTION -->
+      {''.join([f"""
+      <div style="background:#f0fff4;border:1px solid #68d391;border-radius:10px;padding:20px;margin-bottom:16px;border-left:4px solid #38a169;">
+        <div style="font-size:13px;font-weight:800;color:#22543d;margin-bottom:8px">
+          📎 Application Pack #{i+1} — {pack['job_title']} @ {pack['company']}
+        </div>
+        <div style="font-size:12px;color:#276749;margin-bottom:8px">
+          ✅ Tailored CV attached &nbsp;|&nbsp; ✅ Cover letter attached
+        </div>
+        {''.join([f'<span style="background:#c6f6d5;color:#22543d;padding:2px 8px;border-radius:10px;font-size:10px;margin:2px;display:inline-block">#{kw}</span>' for kw in pack.get('ats_keywords', [])[:8]])}
+        <div style="margin-top:8px;font-size:11px;color:#276749">
+          💡 ATS keywords above are woven throughout your tailored CV — make sure to reference them in interviews too.
+        </div>
+      </div>
+      """ for i, pack in enumerate(application_packs)]) if application_packs else ''}
+
+      <!-- APPLICATION PACKS PROMO (if no packs) -->
+      {'' if application_packs else '''
+      <div style="background:#f7faff;border:1px solid #bee3f8;border-radius:8px;padding:14px 18px;margin-bottom:16px;font-size:12px;color:#2c5282">
+        <strong>🤖 Tailored CV & Cover Letter feature:</strong> Add your <code>ANTHROPIC_API_KEY</code> to GitHub Secrets to automatically receive a tailored CV + personalised cover letter for your top 3 jobs every day, attached as Word documents.
+      </div>
+      '''}
+
       {cards}
 
       <!-- FOOTER NOTE -->
@@ -717,24 +759,28 @@ def build_email_html(jobs: list) -> str:
     return html
 
 
-def send_email(jobs: list):
+def send_email(jobs: list, application_packs: list = None):
+    application_packs = application_packs or []
+
     if not EMAIL_FROM or not EMAIL_PASSWORD:
         log.error("EMAIL_FROM or EMAIL_PASSWORD not set — cannot send email")
-        # Dump to file as fallback
         with open("email_preview.html", "w") as f:
-            f.write(build_email_html(jobs))
+            f.write(build_email_html(jobs, application_packs))
         log.info("Email preview saved to email_preview.html")
         return
 
     today = datetime.now().strftime("%d %B %Y")
-    subject = f"🔎 {len(jobs)} New Water Engineering Jobs — {today}"
+    pack_count = len(application_packs)
+    subject = f"🔎 {len(jobs)} New Water Engineering Jobs + {pack_count} Tailored CVs — {today}"
 
-    msg = MIMEMultipart("alternative")
+    # Use 'mixed' to support attachments
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"]    = EMAIL_FROM
     msg["To"]      = EMAIL_TO
 
-    # Plain text fallback
+    # Attach HTML body
+    body_part = MIMEMultipart("alternative")
     plain_lines = [f"Your Daily Job Digest — {today}\n{'='*50}"]
     for i, job in enumerate(jobs, 1):
         plain_lines.append(f"\n#{i} {job['title']}")
@@ -743,16 +789,44 @@ def send_email(jobs: list):
         plain_lines.append(f"  Salary:   {job['salary']}")
         plain_lines.append(f"  Source:   {job['source']}")
         plain_lines.append(f"  Link:     {job['url']}")
-    plain_text = "\n".join(plain_lines)
+    if application_packs:
+        plain_lines.append(f"\n\n{'='*50}")
+        plain_lines.append("YOUR TAILORED APPLICATION PACKS (attached):")
+        for p in application_packs:
+            plain_lines.append(f"\n  {p['job_title']} @ {p['company']}")
+            plain_lines.append(f"  CV:           {os.path.basename(p['cv_path'])}")
+            plain_lines.append(f"  Cover Letter: {os.path.basename(p['cl_path'])}")
 
-    msg.attach(MIMEText(plain_text, "plain"))
-    msg.attach(MIMEText(build_email_html(jobs), "html"))
+    body_part.attach(MIMEText("\n".join(plain_lines), "plain"))
+    body_part.attach(MIMEText(build_email_html(jobs, application_packs), "html"))
+    msg.attach(body_part)
+
+    # ── Attach Word documents ─────────────────────────────────────
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    for pack in application_packs:
+        for filepath, label in [(pack["cv_path"], "CV"), (pack["cl_path"], "Cover Letter")]:
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, "rb") as f:
+                        part = MIMEBase("application",
+                                        "vnd.openxmlformats-officedocument.wordprocessingml.document")
+                        part.set_payload(f.read())
+                    encoders.encode_base64(part)
+                    filename = os.path.basename(filepath)
+                    part.add_header("Content-Disposition", "attachment",
+                                    filename=filename)
+                    msg.attach(part)
+                    log.info(f"  📎 Attached: {filename}")
+                except Exception as e:
+                    log.error(f"Failed to attach {filepath}: {e}")
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
             server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-        log.info(f"✅ Email sent to {EMAIL_TO}")
+        log.info(f"✅ Email sent to {EMAIL_TO} with {len(application_packs)*2} attachments")
     except Exception as e:
         log.error(f"Failed to send email: {e}")
         raise
@@ -761,3 +835,162 @@ def send_email(jobs: list):
 # ═══════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     run()
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  INTEGRATION — CV TAILORING + COVER LETTERS
+#  (appended to existing job_search.py)
+# ═══════════════════════════════════════════════════════════════════
+
+def run_with_cv_generation():
+    """
+    Extended pipeline: search jobs + generate tailored CV + cover letter for each.
+    Attaches ZIP of all application documents to the daily email.
+    """
+    import zipfile as zf
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    log.info("=" * 60)
+    log.info(" Job Hunter + CV Generator — Daily Run")
+    log.info(f" Date: {datetime.now().strftime('%A %d %B %Y, %H:%M UTC')}")
+    log.info("=" * 60)
+
+    seen = load_seen()
+    log.info(f"Previously seen jobs: {len(seen)}")
+
+    # ── Collect from all sources ─────────────────────────────────
+    all_jobs = []
+    all_jobs += fetch_adzuna_uk()
+    all_jobs += fetch_adzuna_eu()
+    all_jobs += fetch_reed()
+    all_jobs += fetch_rss_feeds()
+    all_jobs += fetch_specialist_boards()
+
+    log.info(f"Total raw jobs: {len(all_jobs)}")
+
+    # ── Deduplicate ───────────────────────────────────────────────
+    fresh_jobs = []
+    new_ids = set()
+    for job in all_jobs:
+        jid = job_id(job["title"], job["company"], job["url"])
+        if jid not in seen and jid not in new_ids:
+            job["_id"] = jid
+            fresh_jobs.append(job)
+            new_ids.add(jid)
+
+    log.info(f"Fresh jobs: {len(fresh_jobs)}")
+
+    # ── Score & rank ──────────────────────────────────────────────
+    for job in fresh_jobs:
+        job["_score"] = score_job(
+            job["title"], job["description"],
+            job.get("salary_min"), job.get("salary_max")
+        )
+    fresh_jobs.sort(key=lambda j: j["_score"], reverse=True)
+    top_jobs = fresh_jobs[:JOBS_PER_EMAIL]
+
+    if not top_jobs:
+        log.warning("No new jobs found — skipping")
+        return
+
+    # ── Generate tailored CVs + cover letters ────────────────────
+    zip_path = None
+    try:
+        log.info("Generating tailored CVs and cover letters...")
+        from cv_and_cover import generate_all_materials
+        zip_path = generate_all_materials(top_jobs)
+    except ImportError:
+        log.warning("cv_and_cover.py not found — skipping document generation")
+    except Exception as e:
+        log.error(f"Document generation error: {e}")
+
+    # ── Send email with ZIP attachment ────────────────────────────
+    send_email_with_attachment(top_jobs, zip_path)
+
+    # ── Update seen jobs ──────────────────────────────────────────
+    seen.update(new_ids)
+    save_seen(seen)
+    log.info("✅ All done!")
+
+
+def send_email_with_attachment(jobs: list, zip_path: str = None):
+    """Send the daily digest email with optional ZIP attachment."""
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    if not EMAIL_FROM or not EMAIL_PASSWORD:
+        log.error("EMAIL credentials not set")
+        with open("email_preview.html", "w") as f:
+            f.write(build_email_html(jobs))
+        log.info("Preview saved to email_preview.html")
+        return
+
+    today = datetime.now().strftime("%d %B %Y")
+    doc_count = len(jobs) * 2 if zip_path else 0
+    subject = f"🔎 {len(jobs)} New Jobs + {doc_count} Tailored Docs — {today}" if zip_path else \
+              f"🔎 {len(jobs)} New Water Engineering Jobs — {today}"
+
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+    msg["From"]    = EMAIL_FROM
+    msg["To"]      = EMAIL_TO
+
+    # HTML body
+    alt = MIMEMultipart("alternative")
+    plain_text = "\n".join([f"#{i+1} {j['title']} @ {j['company']} — {j['url']}" for i, j in enumerate(jobs)])
+    alt.attach(MIMEText(plain_text, "plain"))
+    alt.attach(MIMEText(build_email_html_with_docs(jobs, zip_path is not None), "html"))
+    msg.attach(alt)
+
+    # Attach ZIP if it exists
+    if zip_path and os.path.exists(zip_path):
+        with open(zip_path, "rb") as f:
+            part = MIMEBase("application", "zip")
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        zip_filename = os.path.basename(zip_path)
+        part.add_header("Content-Disposition", f'attachment; filename="{zip_filename}"')
+        msg.attach(part)
+        log.info(f"ZIP attached: {zip_filename} ({os.path.getsize(zip_path) // 1024}KB)")
+
+    try:
+        import smtplib
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_FROM, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
+        log.info(f"✅ Email sent to {EMAIL_TO}")
+    except Exception as e:
+        log.error(f"Email failed: {e}")
+        raise
+
+
+def build_email_html_with_docs(jobs: list, has_docs: bool) -> str:
+    """Enhanced email HTML that mentions the attached application pack."""
+    base_html = build_email_html(jobs)
+
+    doc_banner = ""
+    if has_docs:
+        doc_banner = f"""
+    <div style="background:linear-gradient(135deg,#1a6fa8,#27ae60);border-radius:10px;padding:18px 24px;margin-bottom:20px;text-align:center">
+      <div style="color:#ffffff;font-size:16px;font-weight:800;margin-bottom:6px">
+        📎 Your Application Pack is Attached!
+      </div>
+      <div style="color:#d4f0ff;font-size:13px;margin-bottom:10px">
+        {len(jobs)} Tailored CVs + {len(jobs)} Personalised Cover Letters — ready to send
+      </div>
+      <div style="color:#ffffff;font-size:11px;opacity:0.85">
+        Each CV is ATS-optimised for that specific role · Each cover letter includes 4 skill bullets with your real examples
+      </div>
+    </div>"""
+
+    # Insert banner after the tips box
+    return base_html.replace(
+        '<div style="background:#fff8e7',
+        doc_banner + '<div style="background:#fff8e7'
+    )
+
+
+# Run the extended pipeline when script is executed
+if __name__ == "__main__":
+    run_with_cv_generation()
