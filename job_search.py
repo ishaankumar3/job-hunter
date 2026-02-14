@@ -667,15 +667,14 @@ def run():
                 zip_path = f"Ishaan_Kumar_Applications_{today_str}.zip"
                 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                     for pack in application_packs:
-                        num = pack.get("job_number", "?")
-                        folder = f"{num:02d}_{pack['company'].replace(' ','_')[:25]}"
-                        if os.path.exists(pack["cv_path"]):
-                            zf.write(pack["cv_path"],
-                                     f"{folder}/CV_Ishaan_Kumar.docx")
-                        if os.path.exists(pack["cl_path"]):
-                            zf.write(pack["cl_path"],
-                                     f"{folder}/Cover_Letter_Ishaan_Kumar.docx")
-                log.info(f"[OK] ZIP created: {zip_path} ({len(application_packs)} packs)")
+                        num = int(pack.get("job_number") or 0)
+                        safe_company = re.sub(r"[^\w]", "_", pack["company"])[:25]
+                        folder = f"{num:02d}_{safe_company}"
+                        if os.path.exists(pack.get("cv_path", "")):
+                            zf.write(pack["cv_path"], f"{folder}/CV_Ishaan_Kumar.docx")
+                        if os.path.exists(pack.get("cl_path", "")):
+                            zf.write(pack["cl_path"], f"{folder}/Cover_Letter_Ishaan_Kumar.docx")
+                log.info(f"[OK] ZIP created: {zip_path} with {len(application_packs)} packs")
 
         except Exception as e:
             log.error(f"CV tailoring failed: {e}")
@@ -699,135 +698,170 @@ def run():
 def build_email_html(jobs: list, application_packs: list = None) -> str:
     application_packs = application_packs or []
     today = datetime.now().strftime("%A %d %B %Y")
-    day_number = datetime.now().day  # approximate day in 30-day plan
 
+    # Source pills
     source_counts = {}
     for j in jobs:
         source_counts[j["source"]] = source_counts.get(j["source"], 0) + 1
-
     source_pills = " ".join(
-        f'<span style="background:#e8f4fd;color:#1a6fa8;padding:2px 8px;border-radius:12px;font-size:11px;margin:2px;display:inline-block">{s} ({c})</span>'
+        '<span style="background:#e8f4fd;color:#1a6fa8;padding:2px 8px;'
+        'border-radius:12px;font-size:11px;margin:2px;display:inline-block">'
+        + s + " (" + str(c) + ")</span>"
         for s, c in source_counts.items()
     )
 
-    # Sponsorship badge builder
-    SPONS_STYLES = {
+    # Sponsorship badge styles
+    SPONS = {
         "CONFIRMED": ("VISA SPONSOR CONFIRMED", "#276749", "#c6f6d5", "#38a169"),
-        "LIKELY":    ("LIKELY SPONSOR",         "#744210", "#fefcbf", "#d69e2e"),
-        "UNKNOWN":   ("VERIFY SPONSORSHIP",     "#63504c", "#fff5f5", "#c53030"),
+        "LIKELY":    ("LIKELY SPONSOR",          "#744210", "#fefcbf", "#d69e2e"),
+        "UNKNOWN":   ("VERIFY SPONSORSHIP",      "#7b3a3a", "#fff5f5", "#c53030"),
     }
 
-    cards = ""
+    # Build job cards
+    cards_html = ""
     for i, job in enumerate(jobs, 1):
-        priority = "HIGH PRIORITY" if job["title"] in HIGH_PRIORITY or any(t.lower() in job["title"].lower() for t in HIGH_PRIORITY) else "Secondary"
-        priority_color = "#1a6fa8" if "HIGH" in priority else "#6c757d"
-        priority_badge = f'<span style="font-size:10px;font-weight:700;color:{priority_color};text-transform:uppercase;letter-spacing:0.5px">{priority}</span>'
-        source_badge = f'<span style="background:#f0f4f8;color:#5a6473;font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600">{job["source"]}</span>'
+        # Priority badge
+        is_high = job["title"] in HIGH_PRIORITY or any(
+            t.lower() in job["title"].lower() for t in HIGH_PRIORITY
+        )
+        pri_label = "HIGH PRIORITY" if is_high else "Secondary"
+        pri_color = "#1a6fa8"       if is_high else "#6c757d"
+        pri_badge = (
+            '<span style="font-size:10px;font-weight:700;color:' + pri_color +
+            ';text-transform:uppercase;letter-spacing:0.5px">' + pri_label + "</span>"
+        )
+
+        # Source badge
+        src_badge = (
+            '<span style="background:#f0f4f8;color:#5a6473;font-size:10px;'
+            'padding:2px 7px;border-radius:10px;font-weight:600">'
+            + job["source"] + "</span>"
+        )
 
         # Sponsorship badge
-        spons_status = job.get("sponsorship_status", "UNKNOWN")
-        spons_reason = job.get("sponsorship_reason", "")
-        spons_label, spons_text, spons_bg, spons_border = SPONS_STYLES.get(spons_status, SPONS_STYLES["UNKNOWN"])
-        spons_badge = (
-            f'<div style="margin:6px 0 8px">' +
-            f'<span style="background:{spons_bg};color:{spons_text};border:1px solid {spons_border};' +
-            f'padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800">{spons_label}</span>' +
-            (f'<span style="font-size:10px;color:#6b7280;margin-left:6px">{spons_reason[:80]}{"..." if len(spons_reason)>80 else ""}</span>' if spons_reason else '') +
-            f'</div>'
+        status  = job.get("sponsorship_status", "UNKNOWN")
+        reason  = job.get("sponsorship_reason", "")
+        s_label, s_text, s_bg, s_border = SPONS.get(status, SPONS["UNKNOWN"])
+        reason_safe = reason[:90].replace("<", "&lt;").replace(">", "&gt;")
+        spons_html = (
+            '<div style="margin:6px 0 8px">'
+            '<span style="background:' + s_bg + ';color:' + s_text +
+            ';border:1px solid ' + s_border +
+            ';padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800">'
+            + s_label + "</span>"
+            + ('<span style="font-size:10px;color:#6b7280;margin-left:8px">'
+               + reason_safe + ("..." if len(reason) > 90 else "") + "</span>"
+               if reason_safe else "")
+            + "</div>"
         )
 
-        cards += (
-            f'<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;' +
-            f'padding:20px;margin-bottom:16px;border-left:4px solid {spons_border};">' +
-            f'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">' +
-            f'<span style="font-size:13px;font-weight:800;color:#1a2636;line-height:1.3">#{i} · {job["title"]}</span>' +
-            f'{source_badge}</div>' +
-            f'<div style="margin:6px 0 4px;font-size:13px;color:#374151">' +
-            f'<strong>{job["company"]}</strong> &nbsp;|&nbsp; {job["location"]}</div>' +
-            f'<div style="margin-bottom:4px;font-size:13px;color:#374151">' +
-            f'<strong>{job["salary"]}</strong> &nbsp;|&nbsp; {priority_badge}</div>' +
-            spons_badge +
-            f'<p style="font-size:12px;color:#5a6473;margin:0 0 12px;line-height:1.5">' +
-            f'{job["description"][:220].strip()}{"..." if len(job["description"]) > 220 else ""}</p>' +
-            f'<a href="{job["url"]}" style="background:#1a6fa8;color:#ffffff;padding:8px 18px;' +
-            f'border-radius:6px;text-decoration:none;font-size:12px;font-weight:700;display:inline-block">' +
-            f'View &amp; Apply</a></div>'
+        # Description
+        desc = job["description"][:220].strip().replace("<", "&lt;").replace(">", "&gt;")
+        if len(job["description"]) > 220:
+            desc += "..."
+
+        # Has application pack?
+        has_pack = any(
+            p.get("job_number") == i or
+            (p.get("job_title","").lower() == job["title"].lower() and
+             p.get("company","").lower() == job["company"].lower())
+            for p in application_packs
+        )
+        pack_tag = (
+            '<span style="background:#c6f6d5;color:#276749;font-size:10px;'
+            'padding:2px 8px;border-radius:10px;font-weight:700;margin-left:8px">'
+            "CV + Cover Letter Ready</span>" if has_pack else ""
         )
 
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Your Daily Job Digest — {today}</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f7fb;font-family:'Segoe UI',Arial,sans-serif">
-  <div style="max-width:680px;margin:30px auto;background:#f4f7fb">
+        cards_html += (
+            '<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;'
+            'padding:20px;margin-bottom:16px;border-left:4px solid ' + s_border + ';">'
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;'
+            'flex-wrap:wrap;gap:6px;margin-bottom:4px">'
+            '<span style="font-size:13px;font-weight:800;color:#1a2636">'
+            "#" + str(i) + " &middot; " + job["title"] + pack_tag + "</span>"
+            + src_badge + "</div>"
+            '<div style="font-size:12px;color:#374151;margin-bottom:2px">'
+            "<strong>" + job["company"] + "</strong> &nbsp;|&nbsp; " + job["location"] + "</div>"
+            '<div style="font-size:12px;color:#374151;margin-bottom:4px">'
+            "<strong>" + job["salary"] + "</strong> &nbsp;|&nbsp; " + pri_badge + "</div>"
+            + spons_html
+            + '<p style="font-size:11px;color:#5a6473;margin:0 0 12px;line-height:1.5">'
+            + desc + "</p>"
+            '<a href="' + job["url"] + '" style="background:#1a6fa8;color:#ffffff;'
+            'padding:8px 18px;border-radius:6px;text-decoration:none;'
+            'font-size:12px;font-weight:700;display:inline-block">'
+            "View &amp; Apply &rarr;</a></div>"
+        )
 
-    <!-- HEADER -->
-    <div style="background:linear-gradient(135deg,#1a3a5c 0%,#1a6fa8 100%);border-radius:12px 12px 0 0;padding:30px 32px 24px">
-      <div style="color:#7ec8e3;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">
-        🔎 Daily Job Digest
-      </div>
-      <h1 style="color:#ffffff;margin:0 0 4px;font-size:22px;font-weight:800">Ishaan Kumar — Water Engineering Jobs</h1>
-      <div style="color:#a8d8f0;font-size:13px">{today} &nbsp;|&nbsp; {len(jobs)} new opportunities &nbsp;|&nbsp; London & South East + EU</div>
-    </div>
+    # Application packs summary bar
+    if application_packs:
+        packs_bar = (
+            '<div style="background:#f0fff4;border:1px solid #68d391;border-radius:10px;'
+            'padding:16px 20px;margin-bottom:20px">'
+            '<div style="font-size:13px;font-weight:800;color:#22543d;margin-bottom:8px">'
+            "&#x1F4CE; Your Application Pack ZIP is attached — "
+            + str(len(application_packs)) + " tailored CVs &amp; Cover Letters ready to send!</div>"
+            '<div style="font-size:11px;color:#276749">'
+            "Open the ZIP, find the folder for each job, review the Word docs, and hit send. "
+            "Each CV and cover letter is uniquely tailored to that specific role.</div></div>"
+        )
+    else:
+        packs_bar = (
+            '<div style="background:#f7faff;border:1px solid #bee3f8;border-radius:8px;'
+            'padding:14px 18px;margin-bottom:20px;font-size:12px;color:#2c5282">'
+            "<strong>CV Tailoring:</strong> Add <code>ANTHROPIC_API_KEY</code> "
+            "to GitHub Secrets to receive 20 tailored CVs and cover letters daily.</div>"
+        )
 
-    <!-- STATS BAR -->
-    <div style="background:#1a3a5c;padding:12px 32px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-      <span style="color:#7ec8e3;font-size:11px;font-weight:700;margin-right:6px">SOURCES TODAY:</span>
-      {source_pills}
-    </div>
+    # Assemble full HTML using list join to avoid all string issues
+    parts = []
+    parts.append("<!DOCTYPE html><html lang='en'><head>")
+    parts.append('<meta charset="UTF-8">')
+    parts.append('<meta name="viewport" content="width=device-width,initial-scale=1">')
+    parts.append("<title>Daily Job Digest " + today + "</title>")
+    parts.append("</head>")
+    parts.append('<body style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,sans-serif">')
+    parts.append('<div style="max-width:680px;margin:30px auto">')
 
-    <!-- BODY -->
-    <div style="background:#f4f7fb;padding:24px 24px">
+    # Header
+    parts.append('<div style="background:linear-gradient(135deg,#1a3a5c 0%,#1a6fa8 100%);border-radius:12px 12px 0 0;padding:28px 32px 22px">')
+    parts.append('<div style="color:#7ec8e3;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Daily Job Digest</div>')
+    parts.append('<h1 style="color:#ffffff;margin:0 0 4px;font-size:22px;font-weight:800">Ishaan Kumar &mdash; Water Engineering Jobs</h1>')
+    parts.append('<div style="color:#a8d8f0;font-size:13px">' + today + ' &nbsp;|&nbsp; ' + str(len(jobs)) + ' new opportunities &nbsp;|&nbsp; London &amp; South East + EU</div>')
+    parts.append('</div>')
 
-      <!-- TIPS BOX -->
-      <div style="background:#fff8e7;border:1px solid #ffd966;border-radius:8px;padding:14px 18px;margin-bottom:20px;font-size:12px;color:#7a5a00">
-        <strong>💡 30-Day Plan Tip:</strong> Focus your first application energy on the HIGH PRIORITY roles — these match your NAV/Self-Lay profile most closely.
-        Aim for <strong>3 applications per day</strong> to hit your 30-day target.
-      </div>
+    # Stats bar
+    parts.append('<div style="background:#1a3a5c;padding:12px 32px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">')
+    parts.append('<span style="color:#7ec8e3;font-size:11px;font-weight:700;margin-right:6px">SOURCES TODAY:</span>')
+    parts.append(source_pills)
+    parts.append('</div>')
 
-      <!-- APPLICATION PACKS BANNER -->
-      {''.join([
-        '<div style="background:#f0fff4;border:1px solid #68d391;border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:4px solid #38a169;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">' +
-        '<span style="font-size:12px;font-weight:800;color:#22543d">' +
-        '#' + str(pack.get('job_number','')) + ' &mdash; ' + pack['job_title'] + ' @ ' + pack['company'] + '</span>' +
-        '<span style="font-size:10px;background:#c6f6d5;color:#276749;padding:2px 8px;border-radius:10px;font-weight:700">CV + Cover Letter Ready</span>' +
-        '</div>' +
-        '<div style="margin-top:6px;font-size:10px;color:#276749">' +
-        'ATS Keywords: ' + ' '.join(['<span style="background:#e6fffa;color:#234e52;padding:1px 6px;border-radius:8px;margin:1px;display:inline-block">' + kw + '</span>' for kw in pack.get('ats_keywords', [])[:6]]) +
-        '</div></div>'
-        for pack in application_packs
-      ]) if application_packs else
-      '<div style="background:#f7faff;border:1px solid #bee3f8;border-radius:8px;padding:14px 18px;margin-bottom:16px;font-size:12px;color:#2c5282">'
-      '<strong>CV Tailoring:</strong> Add <code>ANTHROPIC_API_KEY</code> to GitHub Secrets to receive tailored CVs and cover letters for all 20 jobs daily.'
-      '</div>'
-      }
+    # Body
+    parts.append('<div style="background:#f4f7fb;padding:24px">')
 
-            {cards}
+    # Tip box
+    parts.append('<div style="background:#fff8e7;border:1px solid #ffd966;border-radius:8px;padding:14px 18px;margin-bottom:20px;font-size:12px;color:#7a5a00">')
+    parts.append('<strong>30-Day Tip:</strong> Green = confirmed UK sponsor register. Yellow = likely sponsor. Red = verify before applying. Grey jobs removed automatically.</div>')
 
-      <!-- FOOTER NOTE -->
-      <div style="background:#e8f4fd;border-radius:8px;padding:14px 18px;margin-top:8px;font-size:12px;color:#1a3a5c">
-        <strong>🎯 Application tip for today:</strong> Customise your cover letter to mention your <strong>NAV & Self-Lay end-to-end experience</strong>,
-        your track record of <strong>first-time Thames Water / Affinity Water approvals</strong>,
-        and your <strong>£20M portfolio</strong>. These are rare differentiators.
-      </div>
-    </div>
+    # Packs bar
+    parts.append(packs_bar)
 
-    <!-- FOOTER -->
-    <div style="background:#2d3748;border-radius:0 0 12px 12px;padding:16px 32px;text-align:center">
-      <p style="color:#8896a7;font-size:11px;margin:0">
-        Auto-generated by your personal Job Hunter bot · Runs daily at 8am UK time<br>
-        Searching: Adzuna · Reed · Indeed · Totaljobs · CV-Library · CWJobs · Jobsite · Guardian Jobs · New Civil Engineer · Specialist Boards
-      </p>
-    </div>
+    # Job cards
+    parts.append(cards_html)
 
-  </div>
-</body>
-</html>"""
-    return html
+    # Footer note
+    parts.append('<div style="background:#e8f4fd;border-radius:8px;padding:14px 18px;margin-top:8px;font-size:12px;color:#1a3a5c">')
+    parts.append('<strong>Application tip:</strong> Lead every cover letter with your <strong>NAV &amp; Self-Lay end-to-end experience</strong>, <strong>first-time Thames Water/Affinity Water approvals</strong>, and your <strong>&pound;20M portfolio</strong>. These are rare differentiators.</div>')
+    parts.append('</div>')
+
+    # Footer
+    parts.append('<div style="background:#2d3748;border-radius:0 0 12px 12px;padding:16px 32px;text-align:center">')
+    parts.append('<p style="color:#8896a7;font-size:11px;margin:0">Auto-generated daily at 8am &middot; Adzuna &middot; Reed &middot; Indeed &middot; Totaljobs &middot; CV-Library &middot; CWJobs &middot; New Civil Engineer</p>')
+    parts.append('</div></div></body></html>')
+
+    return "".join(parts)
+
 
 
 def send_email(jobs: list, application_packs: list = None, zip_path: str = None):
