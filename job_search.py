@@ -37,8 +37,8 @@ ADZUNA_APP_ID    = os.environ.get("ADZUNA_APP_ID", "")       # Free from api.adz
 ADZUNA_APP_KEY   = os.environ.get("ADZUNA_APP_KEY", "")      # Free from api.adzuna.com
 REED_API_KEY     = os.environ.get("REED_API_KEY", "")        # Free from reed.co.uk/developers
 SEEN_JOBS_FILE   = "seen_jobs.json"
-JOBS_PER_EMAIL   = 20
-FETCH_POOL_SIZE  = 120  # fetch this many before filtering to guarantee 20 after
+JOBS_PER_EMAIL   = 50
+FETCH_POOL_SIZE  = 300  # fetch this many before filtering to guarantee 50 after
 SALARY_MIN       = 42000
 SALARY_MAX       = 55000
 
@@ -216,12 +216,12 @@ def fetch_adzuna_uk() -> list:
     jobs = []
     base = "https://api.adzuna.com/v1/api/jobs/gb/search/1"
 
-    for query in SEARCH_QUERIES[:6]:  # use 6 queries for larger pool
+    for query in SEARCH_QUERIES[:10]:  # use 10 queries for larger pool
         try:
             params = {
                 "app_id": ADZUNA_APP_ID,
                 "app_key": ADZUNA_APP_KEY,
-                "results_per_page": 50,
+                "results_per_page": 100,
                 "what": query,
                 "where": "London",
                 "distance": 60,
@@ -320,7 +320,7 @@ def fetch_reed() -> list:
                 "distancefromLocation": 50,
                 "minimumSalary": SALARY_MIN,
                 "maximumSalary": SALARY_MAX,
-                "resultsToTake": 50,
+                "resultsToTake": 100,
             }
             r = requests.get(base, params=params, auth=(REED_API_KEY, ""), timeout=15)
             r.raise_for_status()
