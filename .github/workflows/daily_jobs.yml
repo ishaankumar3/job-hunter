@@ -16,6 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -36,29 +37,17 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python job_search.py
 
-      - name: Commit Updated Tracker to Repo
+      - name: Save tracker back to repo
         if: always()
         run: |
-          git config user.name  "Job Hunter Bot"
-          git config user.email "bot@job-hunter"
-          git add job_tracker.xlsx seen_jobs.json || true
-          git diff --staged --quiet || git commit -m "tracker: update job log $(date +'%Y-%m-%d')"
-          git push || true
-
-      - name: Upload Tracker as Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: job-tracker-${{ github.run_id }}
-          path: job_tracker.xlsx
-          if-no-files-found: ignore
-          retention-days: 30
-
-      - name: Upload Email Preview
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: email-preview-${{ github.run_id }}
-          path: email_preview.html
-          if-no-files-found: ignore
-          retention-days: 7
+          git config --global user.name  "Job Hunter Bot"
+          git config --global user.email "actions@github.com"
+          git add job_tracker.xlsx || true
+          git add seen_jobs.json   || true
+          if git diff --staged --quiet; then
+            echo "No tracker changes to commit"
+          else
+            git commit -m "tracker: $(date +'%Y-%m-%d') daily update"
+            git pull --rebase origin main || git pull --rebase origin master || true
+            git push origin HEAD || true
+          fi
