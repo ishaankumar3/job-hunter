@@ -353,48 +353,120 @@ def fetch_reed() -> list:
 # ═══════════════════════════════════════════════════════════════════
 
 RSS_FEEDS = [
-    # Indeed UK
-    ("Indeed UK",      "https://www.indeed.co.uk/rss?q=water+design+engineer&l=London&radius=50&sort=date"),
-    ("Indeed UK",      "https://www.indeed.co.uk/rss?q=hydraulic+engineer+water&l=London&radius=50&sort=date"),
-    ("Indeed UK",      "https://www.indeed.co.uk/rss?q=developer+services+engineer&l=London&radius=50&sort=date"),
-    ("Indeed UK",      "https://www.indeed.co.uk/rss?q=NAV+water+engineer&l=London&radius=50&sort=date"),
-    ("Indeed UK",      "https://www.indeed.co.uk/rss?q=water+network+engineer&l=South+East+England&radius=50&sort=date"),
+    # ── Indeed UK ─────────────────────────────────────────────────
+    ("Indeed UK", "https://www.indeed.co.uk/rss?q=water+design+engineer&l=London&radius=50&sort=date"),
+    ("Indeed UK", "https://www.indeed.co.uk/rss?q=hydraulic+engineer+water&l=London&radius=50&sort=date"),
+    ("Indeed UK", "https://www.indeed.co.uk/rss?q=developer+services+engineer&l=London&radius=50&sort=date"),
+    ("Indeed UK", "https://www.indeed.co.uk/rss?q=NAV+water+engineer&l=London&radius=50&sort=date"),
+    ("Indeed UK", "https://www.indeed.co.uk/rss?q=water+network+engineer&l=South+East+England&radius=50&sort=date"),
+    ("Indeed UK", "https://www.indeed.co.uk/rss?q=water+infrastructure+engineer&l=UK&sort=date"),
+    ("Indeed UK", "https://www.indeed.co.uk/rss?q=civil+engineer+water+utilities&l=London&radius=50&sort=date"),
+    ("Indeed UK", "https://www.indeed.co.uk/rss?q=WaterGEMS+engineer&sort=date"),
+    ("Indeed UK", "https://www.indeed.co.uk/rss?q=self+lay+operator+water&sort=date"),
 
-    # Totaljobs
-    ("Totaljobs",      "https://www.totaljobs.com/SearchResults/rss?Keywords=water+design+engineer&Location=London&Radius=50"),
-    ("Totaljobs",      "https://www.totaljobs.com/SearchResults/rss?Keywords=hydraulic+engineer&Location=London&Radius=50"),
-    ("Totaljobs",      "https://www.totaljobs.com/SearchResults/rss?Keywords=water+infrastructure+engineer&Location=London"),
+    # ── Totaljobs ─────────────────────────────────────────────────
+    ("Totaljobs", "https://www.totaljobs.com/SearchResults/rss?Keywords=water+design+engineer&Location=London&Radius=50"),
+    ("Totaljobs", "https://www.totaljobs.com/SearchResults/rss?Keywords=hydraulic+engineer&Location=London&Radius=50"),
+    ("Totaljobs", "https://www.totaljobs.com/SearchResults/rss?Keywords=water+infrastructure+engineer&Location=London"),
+    ("Totaljobs", "https://www.totaljobs.com/SearchResults/rss?Keywords=water+network+engineer&Location=UK"),
 
-    # CV-Library
-    ("CV-Library",     "https://www.cv-library.co.uk/jobs/rss?q=water+engineer&loc=London&rad=50&salary_min=40000"),
-    ("CV-Library",     "https://www.cv-library.co.uk/jobs/rss?q=hydraulic+engineer&loc=London&rad=50"),
+    # ── CV-Library ────────────────────────────────────────────────
+    ("CV-Library", "https://www.cv-library.co.uk/jobs/rss?q=water+engineer&loc=London&rad=50&salary_min=35000"),
+    ("CV-Library", "https://www.cv-library.co.uk/jobs/rss?q=hydraulic+engineer&loc=London&rad=50"),
+    ("CV-Library", "https://www.cv-library.co.uk/jobs/rss?q=water+infrastructure&loc=UK&rad=100"),
+    ("CV-Library", "https://www.cv-library.co.uk/jobs/rss?q=civil+engineer+utilities&loc=London&rad=50"),
 
-    # CWJobs
-    ("CWJobs",         "https://www.cwjobs.co.uk/SearchResults/rss?Keywords=water+engineer&Location=London&Radius=50"),
+    # ── CWJobs ────────────────────────────────────────────────────
+    ("CWJobs", "https://www.cwjobs.co.uk/SearchResults/rss?Keywords=water+engineer&Location=London&Radius=50"),
+    ("CWJobs", "https://www.cwjobs.co.uk/SearchResults/rss?Keywords=hydraulic+modeller&Location=UK"),
 
-    # Jobsite
-    ("Jobsite",        "https://www.jobsite.co.uk/jobs/rss?keywords=water+design+engineer&location=London&radius=50"),
+    # ── Jobsite ───────────────────────────────────────────────────
+    ("Jobsite", "https://www.jobsite.co.uk/jobs/rss?keywords=water+design+engineer&location=London&radius=50"),
+    ("Jobsite", "https://www.jobsite.co.uk/jobs/rss?keywords=water+network+engineer&location=UK"),
 
-    # Guardian Jobs
-    ("Guardian Jobs",  "https://jobs.theguardian.com/jobs/engineering/water/?format=rss"),
+    # ── Guardian Jobs ─────────────────────────────────────────────
+    ("Guardian Jobs", "https://jobs.theguardian.com/jobs/engineering/water/?format=rss"),
+    ("Guardian Jobs", "https://jobs.theguardian.com/jobs/engineering/?format=rss&q=water+engineer"),
 
-    # New Civil Engineer Jobs
-    ("New Civil Engineer", "https://jobs.newcivilengineer.com/jobs/feed/?s=water+engineer&location=London"),
+    # ── New Civil Engineer ────────────────────────────────────────
+    ("New Civil Engineer", "https://jobs.newcivilengineer.com/jobs/feed/?s=water+engineer"),
+    ("New Civil Engineer", "https://jobs.newcivilengineer.com/jobs/feed/?s=hydraulic+engineer"),
 
-    # Indeed Ireland
+    # ── Tes / TARGETjobs (engineering) ───────────────────────────
+    ("TARGETjobs", "https://targetjobs.co.uk/api/jobs/rss?keywords=water+engineer"),
+
+    # ── JobsInEngineering ─────────────────────────────────────────
+    ("Jobs in Engineering", "https://www.jobsinengineeringuk.co.uk/jobs/rss?keywords=water+engineer"),
+
+    # ── Glassdoor RSS (limited but works) ────────────────────────
+    ("Glassdoor UK", "https://www.glassdoor.co.uk/Job/jobs.htm?suggestCount=0&suggestChosen=false&clickSource=searchBtn&typedKeyword=water+engineer&sc.keyword=water+engineer&locT=N&locId=2&jobType=&rss=1"),
+
+    # ── Monster UK ───────────────────────────────────────────────
+    ("Monster UK", "https://www.monster.co.uk/jobs/search/?q=water-engineer&where=london&rad=50&intcid=skr_navigation_nhpso_searchMain&rss=1"),
+    ("Monster UK", "https://www.monster.co.uk/jobs/search/?q=hydraulic-engineer&rss=1"),
+
+    # ── CareerJet UK ─────────────────────────────────────────────
+    ("CareerJet UK", "https://www.careerjet.co.uk/jobs.rss?s=water+engineer&l=London&radius=50&sort=date"),
+    ("CareerJet UK", "https://www.careerjet.co.uk/jobs.rss?s=water+infrastructure+engineer&l=UK&sort=date"),
+
+    # ── JobServe (engineering/technical) ─────────────────────────
+    ("JobServe UK", "https://www.jobserve.com/gb/en/job-search/results/?q=water+engineer&l=London&rss=1"),
+
+    # ── S1jobs (Scotland coverage) ────────────────────────────────
+    ("S1Jobs", "https://s1jobs.com/jobs/rss/?q=water+engineer&location=UK"),
+
+    # ── EngineerJobs.co.uk ────────────────────────────────────────
+    ("EngineerJobs UK", "https://www.engineerjobs.co.uk/jobs/rss?keywords=water+engineer&location=London"),
+    ("EngineerJobs UK", "https://www.engineerjobs.co.uk/jobs/rss?keywords=hydraulic+engineer"),
+
+    # ── WaterJobs.co.uk (specialist) ─────────────────────────────
+    ("WaterJobs UK", "https://www.waterjobs.co.uk/jobs/rss?keywords=water+engineer&location=UK"),
+
+    # ── Util-ities.co.uk (utilities specialist) ───────────────────
+    ("Utilities Jobs", "https://www.utilities-jobs.co.uk/jobs/rss?keywords=water+engineer"),
+
+    # ── Environment Job (sector specific) ────────────────────────
+    ("Environment Job", "https://www.environmentjob.co.uk/jobs/rss?keywords=water+engineer"),
+    ("Environment Job", "https://www.environmentjob.co.uk/jobs/rss?keywords=hydraulic+engineer"),
+
+    # ── CIWEM Job Board ───────────────────────────────────────────
+    ("CIWEM Jobs", "https://jobs.ciwem.org/jobs/feed/?s=water+engineer"),
+
+    # ── ICE (Institution of Civil Engineers) ─────────────────────
+    ("ICE Jobs", "https://jobs.ice.org.uk/jobs/feed/?s=water+engineer"),
+    ("ICE Jobs", "https://jobs.ice.org.uk/jobs/feed/?s=hydraulic+engineer"),
+
+    # ── IET Engineering jobs ─────────────────────────────────────
+    ("IET Jobs", "https://jobs.theiet.org/jobs/feed/?s=water+engineer"),
+
+    # ── Indeed Ireland ────────────────────────────────────────────
     ("Indeed Ireland", "https://ie.indeed.com/rss?q=water+engineer&l=Dublin&sort=date"),
+    ("Indeed Ireland", "https://ie.indeed.com/rss?q=civil+engineer+water&l=Ireland&sort=date"),
 
-    # Indeed Germany
+    # ── Indeed Germany ────────────────────────────────────────────
     ("Indeed Germany", "https://de.indeed.com/rss?q=water+engineer&l=Germany&sort=date"),
+    ("Indeed Germany", "https://de.indeed.com/rss?q=Wasserbauingenieur&l=Deutschland&sort=date"),
 
-    # Indeed Netherlands
+    # ── Indeed Netherlands ────────────────────────────────────────
     ("Indeed Netherlands", "https://nl.indeed.com/rss?q=water+engineer&l=Netherlands&sort=date"),
+    ("Indeed Netherlands", "https://nl.indeed.com/rss?q=hydraulic+engineer&sort=date"),
 
-    # Indeed Spain
-    ("Indeed Spain",   "https://es.indeed.com/rss?q=water+engineer&l=Spain&sort=date"),
+    # ── Indeed Spain ─────────────────────────────────────────────
+    ("Indeed Spain", "https://es.indeed.com/rss?q=water+engineer&l=Spain&sort=date"),
 
-    # Indeed Portugal
-    ("Indeed Portugal","https://pt.indeed.com/rss?q=water+engineer&l=Portugal&sort=date"),
+    # ── Indeed Portugal ───────────────────────────────────────────
+    ("Indeed Portugal", "https://pt.indeed.com/rss?q=water+engineer&l=Portugal&sort=date"),
+
+    # ── Indeed Belgium ────────────────────────────────────────────
+    ("Indeed Belgium", "https://be.indeed.com/rss?q=water+engineer&l=Belgium&sort=date"),
+
+    # ── Indeed France ─────────────────────────────────────────────
+    ("Indeed France", "https://www.indeed.fr/rss?q=water+engineer&l=France&sort=date"),
+
+    # ── Indeed Sweden ─────────────────────────────────────────────
+    ("Indeed Sweden", "https://se.indeed.com/rss?q=water+engineer&l=Sweden&sort=date"),
+
+    # LinkedIn handled separately via fetch_linkedin() scraper
 ]
 
 
@@ -491,6 +563,108 @@ def fetch_specialist_boards() -> list:
         except Exception as e:
             log.error(f"Specialist board error [{source_name}]: {e}")
 
+    return jobs
+
+
+def fetch_linkedin() -> list:
+    """
+    Scrape LinkedIn public job listings (no auth needed).
+    Uses the guest API endpoint that returns HTML job cards.
+    """
+    import re
+    from bs4 import BeautifulSoup
+
+    LINKEDIN_SEARCHES = [
+        ("water design engineer",  "United Kingdom"),
+        ("hydraulic engineer",     "United Kingdom"),
+        ("water network engineer", "United Kingdom"),
+        ("WaterGEMS engineer",     "United Kingdom"),
+        ("water infrastructure",   "London"),
+        ("civil engineer water",   "United Kingdom"),
+    ]
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "en-GB,en;q=0.9",
+    }
+
+    jobs = []
+    seen_ids = set()
+
+    for keywords, location in LINKEDIN_SEARCHES:
+        url = (
+            "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+            "?keywords=" + keywords.replace(" ", "%20") +
+            "&location=" + location.replace(" ", "%20") +
+            "&f_TPR=r86400"   # last 24 hours
+            "&start=0"
+        )
+        try:
+            r = requests.get(url, headers=headers, timeout=12)
+            if r.status_code != 200:
+                log.warning("LinkedIn [%s]: HTTP %d", keywords, r.status_code)
+                continue
+
+            soup = BeautifulSoup(r.text, "html.parser")
+            cards = soup.find_all("div", class_=re.compile(r"base-card"))
+            if not cards:
+                # Try alternate selector
+                cards = soup.find_all("li")
+
+            count = 0
+            for card in cards:
+                try:
+                    # Title
+                    t_el = (card.find("h3", class_=re.compile(r"base-search-card__title")) or
+                            card.find("h3") or card.find("span", class_=re.compile(r"title")))
+                    title = t_el.get_text(strip=True) if t_el else ""
+
+                    # Company
+                    c_el = (card.find("h4", class_=re.compile(r"base-search-card__subtitle")) or
+                            card.find("a", class_=re.compile(r"hidden-nested-link")))
+                    company = c_el.get_text(strip=True) if c_el else "Unknown"
+
+                    # Location
+                    loc_el = card.find("span", class_=re.compile(r"job-search-card__location"))
+                    loc = loc_el.get_text(strip=True) if loc_el else location
+
+                    # URL
+                    a_el = card.find("a", href=re.compile(r"linkedin\.com/jobs/view"))
+                    link = a_el["href"].split("?")[0] if a_el else ""
+
+                    # Job ID for dedup
+                    jid = re.search(r"/jobs/view/(\d+)", link or "")
+                    if jid:
+                        lid = jid.group(1)
+                        if lid in seen_ids:
+                            continue
+                        seen_ids.add(lid)
+
+                    if not title or not link:
+                        continue
+
+                    jobs.append({
+                        "title":       title,
+                        "company":     company,
+                        "location":    loc,
+                        "description": f"Water engineering role at {company}. See LinkedIn for full details.",
+                        "url":         link,
+                        "salary":      "Not specified",
+                        "salary_min":  None,
+                        "salary_max":  None,
+                        "source":      "LinkedIn",
+                        "posted":      "",
+                    })
+                    count += 1
+                except Exception:
+                    continue
+
+            log.info("LinkedIn [%s]: %d jobs", keywords, count)
+
+        except Exception as e:
+            log.warning("LinkedIn fetch failed [%s]: %s", keywords, e)
+
+    log.info("LinkedIn total: %d jobs", len(jobs))
     return jobs
 
 
@@ -610,6 +784,7 @@ def run():
     all_jobs += fetch_reed()
     all_jobs += fetch_rss_feeds()
     all_jobs += fetch_specialist_boards()
+    all_jobs += fetch_linkedin()
 
     log.info(f"Total raw jobs collected: {len(all_jobs)}")
 
