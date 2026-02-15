@@ -8,18 +8,14 @@ jobs:
     name: Search Jobs & Send Email
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Restore Seen Jobs Cache
-        uses: actions/cache@v4
         with:
-          path: seen_jobs.json
-          key: seen-jobs-${{ runner.os }}
-          restore-keys: |
-            seen-jobs-
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -30,7 +26,7 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Job Search + CV Tailoring
+      - name: Run Job Search
         env:
           EMAIL_FROM:        ${{ secrets.EMAIL_FROM }}
           EMAIL_PASSWORD:    ${{ secrets.EMAIL_PASSWORD }}
@@ -40,14 +36,23 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python job_search.py
 
-      - name: Upload Application Packs as Artifacts
+      - name: Commit Updated Tracker to Repo
+        if: always()
+        run: |
+          git config user.name  "Job Hunter Bot"
+          git config user.email "bot@job-hunter"
+          git add job_tracker.xlsx seen_jobs.json || true
+          git diff --staged --quiet || git commit -m "tracker: update job log $(date +'%Y-%m-%d')"
+          git push || true
+
+      - name: Upload Tracker as Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: application-packs-${{ github.run_id }}
-          path: application_packs/
+          name: job-tracker-${{ github.run_id }}
+          path: job_tracker.xlsx
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 30
 
       - name: Upload Email Preview
         if: always()
