@@ -7,7 +7,7 @@ jobs:
   search-and-email:
     name: Search Jobs & Send Email
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: write
 
