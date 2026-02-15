@@ -149,9 +149,11 @@ def job_id(title: str, company: str, url: str) -> str:
 #  RELEVANCE SCORING
 # ═══════════════════════════════════════════════════════════════════
 
-def score_job(title: str, description: str, salary_min=None, salary_max=None) -> int:
+def score_job(title: str, description: str, salary_min=None, salary_max=None,
+              rejected_patterns: dict = None) -> int:
     score = 0
     text = f"{title} {description}".lower()
+    title_lower = title.lower()
 
     # Title priority score
     for t in HIGH_PRIORITY:
@@ -174,6 +176,30 @@ def score_job(title: str, description: str, salary_min=None, salary_max=None) ->
             score += 20
     elif salary_min and salary_min >= SALARY_MIN:
         score += 10
+
+    # ── Penalty from your "Not Applied" feedback ──────────────────
+    # Jobs you marked No teach the bot what to avoid
+    if rejected_patterns:
+        title_words = rejected_patterns.get("title_words", {})
+        bad_companies = rejected_patterns.get("companies", set())
+
+        # Penalise words that appear frequently in jobs you rejected
+        # Only penalise words seen in 2+ rejected jobs (avoids noise)
+        penalty = 0
+        for word, count in title_words.items():
+            if count >= 2 and word in title_lower:
+                penalty += 10 * count   # stronger penalty the more you reject it
+        if penalty > 0:
+            log.debug("[SCORE] Penalty -%d for '%s' (matches rejected title patterns)", penalty, title)
+            score -= penalty
+
+        # Hard skip flag for companies you consistently reject
+        company_lower = description.lower()  # company name may appear in description
+        for bad_co in bad_companies:
+            if bad_co in title_lower or bad_co in company_lower:
+                score -= 50  # pushes it to bottom of list
+                log.debug("[SCORE] Company penalty for '%s' (previously rejected)", bad_co)
+                break
 
     return score
 
@@ -564,8 +590,18 @@ def run():
     log.info(f" Date: {datetime.now().strftime('%A %d %B %Y, %H:%M UTC')}")
     log.info("=" * 60)
 
-    seen = load_seen()
-    log.info(f"Previously seen jobs: {len(seen)}")
+    # Load already-sent job IDs from Excel tracker
+    try:
+        from job_tracker import load_sent_ids, load_rejected_patterns
+        seen = load_sent_ids()
+        rejected_patterns = load_rejected_patterns()
+    except Exception as e:
+        log.warning("[TRACKER] Could not load tracker (%s) — falling back to seen_jobs.json", e)
+        seen = load_seen()
+        rejected_patterns = {"title_words": {}, "companies": set()}
+    log.info("Previously sent jobs (in tracker): %d", len(seen))
+    log.info("[TRACKER] Rejected patterns loaded: %d title words, %d companies to avoid",
+             len(rejected_patterns["title_words"]), len(rejected_patterns["companies"]))
 
     # ── Collect from all sources ─────────────────────────────────
     all_jobs = []
@@ -577,28 +613,50 @@ def run():
 
     log.info(f"Total raw jobs collected: {len(all_jobs)}")
 
-    # ── Deduplicate ───────────────────────────────────────────────
+    # ── Deduplicate against tracker ──────────────────────────────
     fresh_jobs = []
-    new_ids = set()
+    seen_this_run = set()
     for job in all_jobs:
         jid = job_id(job["title"], job["company"], job["url"])
-        if jid not in seen and jid not in new_ids:
+        if jid not in seen and jid not in seen_this_run:
             job["_id"] = jid
             fresh_jobs.append(job)
-            new_ids.add(jid)
+            seen_this_run.add(jid)
 
-    log.info(f"Fresh (unseen) jobs: {len(fresh_jobs)}")
+    log.info("Fresh jobs (not yet sent): %d", len(fresh_jobs))
 
-    # ── Score & rank ──────────────────────────────────────────────
+    # ── Score & rank (with feedback penalty from tracker) ───────
     for job in fresh_jobs:
         job["_score"] = score_job(
             job["title"],
             job["description"],
             job.get("salary_min"),
             job.get("salary_max"),
+            rejected_patterns=rejected_patterns,
         )
 
     fresh_jobs.sort(key=lambda j: j["_score"], reverse=True)
+
+    # ── Filter jobs based on your "Why No" feedback ─────────────
+    try:
+        from job_tracker import load_rejection_reasons, should_skip_job
+        rejections = load_rejection_reasons()
+        if rejections:
+            before = len(fresh_jobs)
+            filtered = []
+            for job in fresh_jobs:
+                skip, reason = should_skip_job(job, rejections)
+                if skip:
+                    log.info("[FILTER] Skipping: %s @ %s — %s", job["title"], job["company"], reason)
+                else:
+                    filtered.append(job)
+            fresh_jobs = filtered
+            log.info("[FILTER] Removed %d jobs based on your rejection feedback (%d remain)",
+                     before - len(fresh_jobs), len(fresh_jobs))
+        else:
+            log.info("[FILTER] No rejection reasons in tracker yet — showing all jobs")
+    except Exception as e:
+        log.warning("[FILTER] Could not apply rejection filter: %s", e)
 
     # ── Sponsorship license filter ────────────────────────────────
     log.info("Running sponsorship license checks...")
@@ -714,11 +772,17 @@ def run():
     # ── Send email ────────────────────────────────────────────────
     send_email(top_jobs, application_packs, zip_path)
 
-    # ── Update seen jobs ──────────────────────────────────────────
-    seen.update(new_ids)
-    save_seen(seen)
+    # ── Save sent jobs to Excel tracker ──────────────────────────
+    try:
+        from job_tracker import append_jobs_to_tracker
+        added, skipped = append_jobs_to_tracker(top_jobs)
+        log.info("[TRACKER] %d jobs logged to tracker (%d already existed)", len(added), skipped)
+    except Exception as e:
+        log.error("[TRACKER] Could not update tracker (%s) — falling back to seen_jobs.json", e)
+        seen.update(seen_this_run)
+        save_seen(seen)
 
-    log.info("[DONE] Email sent and seen_jobs.json updated.")
+    log.info("[DONE] Complete.")
 
 
 # ═══════════════════════════════════════════════════════════════════
