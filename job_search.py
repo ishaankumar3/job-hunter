@@ -148,8 +148,45 @@ def save_seen(ids: set):
         json.dump({"ids": trimmed, "updated": datetime.now().isoformat()}, f, indent=2)
 
 
+def _normalize_company(company: str) -> str:
+    """Normalize company name to reduce false duplicates."""
+    c = company.lower().strip()
+    # Remove common suffixes
+    for suffix in [" ltd", " limited", " plc", " llp", " uk", " consulting", 
+                   " consultancy", " group", " holdings", " solutions", " services"]:
+        if c.endswith(suffix):
+            c = c[:-len(suffix)].strip()
+    # Remove punctuation
+    c = c.replace(".", "").replace(",", "").replace("&", "and")
+    # Remove extra spaces
+    c = " ".join(c.split())
+    return c
+
+def _normalize_title(title: str) -> str:
+    """Normalize title to catch near-duplicates."""
+    t = title.lower().strip()
+    # Remove common noise words
+    t = t.replace("(", " ").replace(")", " ").replace("/", " ").replace("-", " ")
+    t = " ".join(t.split())  # collapse whitespace
+    return t
+
 def job_id(title: str, company: str, url: str) -> str:
-    raw = f"{title.lower().strip()}|{company.lower().strip()}|{url.strip()}"
+    """Generate stable job ID that resists company name variations."""
+    # Normalize both title and company before hashing
+    norm_title = _normalize_title(title)
+    norm_company = _normalize_company(company)
+    
+    # If URL contains a unique ID, prioritize that (most reliable)
+    import re
+    url_id = re.search(r'/jobs?/view/(\d+)|job[_-]?id[=:](\d+)|/(\d{6,})', url)
+    if url_id:
+        # Use URL ID as primary identifier
+        unique = url_id.group(1) or url_id.group(2) or url_id.group(3)
+        raw = f"{unique}|{norm_company}"
+    else:
+        # Fall back to title+company (URL might be a tracking link)
+        raw = f"{norm_title}|{norm_company}"
+    
     return hashlib.md5(raw.encode()).hexdigest()
 
 
