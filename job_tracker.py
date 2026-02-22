@@ -61,8 +61,37 @@ WHY_NO_OPTIONS = [
 ]
 
 
+def _normalize_company(company):
+    """Normalize company name to reduce false duplicates."""
+    c = company.lower().strip()
+    for suffix in [" ltd", " limited", " plc", " llp", " uk", " consulting", 
+                   " consultancy", " group", " holdings", " solutions", " services"]:
+        if c.endswith(suffix):
+            c = c[:-len(suffix)].strip()
+    c = c.replace(".", "").replace(",", "").replace("&", "and")
+    c = " ".join(c.split())
+    return c
+
+def _normalize_title(title):
+    """Normalize title to catch near-duplicates."""
+    t = title.lower().strip()
+    t = t.replace("(", " ").replace(")", " ").replace("/", " ").replace("-", " ")
+    t = " ".join(t.split())
+    return t
+
 def _job_id(title, company, url):
-    raw = title.lower().strip() + "|" + company.lower().strip() + "|" + url.strip()
+    """Generate stable job ID that resists company name variations."""
+    norm_title = _normalize_title(title)
+    norm_company = _normalize_company(company)
+    
+    # If URL contains unique ID, use that
+    url_id = re.search(r'/jobs?/view/(\d+)|job[_-]?id[=:](\d+)|(\d{6,})', url)
+    if url_id:
+        unique = url_id.group(1) or url_id.group(2) or url_id.group(3)
+        raw = unique + "|" + norm_company
+    else:
+        raw = norm_title + "|" + norm_company
+    
     return hashlib.md5(raw.encode()).hexdigest()[:12]
 
 
