@@ -75,45 +75,10 @@ SECONDARY = [
 
 ALL_TITLES = HIGH_PRIORITY + SECONDARY
 
-# ── Keywords extracted from Ishaan's CV (used for scoring) ─────────
-SKILL_KEYWORDS = [
-    "watergems", "autocad", "revit", "civil 3d", "arcgis",
-    "hydraulic", "water network", "water distribution", "water mains",
-    "nav", "self-lay", "self lay", "developer services",
-    "thames water", "affinity water", "south east water", "wessex water",
-    "amp7", "amp8", "amp 7", "amp 8",
-    "water infrastructure", "cdm", "eusr", "wras", "dwi", "ofwat",
-    "section 104", "section 185", "section 38",
-    "sewers for adoption", "sfa",
-    "pumping station", "drainage", "suds", "water mains design",
-    "pipe design", "pressure", "navisworks", "infraworks",
-    "miet", "ceng", "chartered engineer",
-    "water utility", "utilities", "infrastructure",
-]
+# Keywords imported from search_profile.py (WATER_ENGINEERING_KEYWORDS)
 
 # ── Search query terms sent to APIs/RSS feeds ──────────────────────
-SEARCH_QUERIES = [
-    "water design engineer",
-    "water network engineer",
-    "hydraulic engineer water",
-    "water infrastructure engineer",
-    "NAV engineer",
-    "NAV water",
-    "self-lay operator",
-    "self lay water",
-    "developer services water",
-    "water distribution engineer",
-    "WaterGEMS engineer",
-    "hydraulic modeller water",
-    "AMP8 water engineer",
-    "AMP7 water engineer",
-    "clean water design",
-    "water mains design",
-    "Section 104 engineer",
-    "Section 185 water",
-    "Thames Water engineer",
-    "Affinity Water engineer",
-]
+SEARCH_QUERIES = WATER_SEARCH_QUERIES  # Imported from search_profile.py
 
 # ── Target locations ───────────────────────────────────────────────
 UK_LOCATIONS   = ["London", "Surrey", "Kent", "Essex", "Hertfordshire", "Berkshire", "Hampshire"]
@@ -196,101 +161,93 @@ def job_id(title: str, company: str, url: str) -> str:
 
 def score_job(title: str, description: str, salary_min=None, salary_max=None,
               rejected_patterns: dict = None) -> int:
-    score = 0
+    """
+    STRICT scoring for water engineering roles only.
+    Returns -1000 for blocked jobs, 0+ for relevant jobs.
+    """
     text = f"{title} {description}".lower()
     title_lower = title.lower()
-
-    # ── HARD BLOCK — Completely wrong disciplines ────────────────
-    # Return -1000 to push these to the very bottom (filtered out before email)
-    BLOCK_KEYWORDS = [
-        "electrical engineer", "electrician", "electric ", "electrical design",
-        "plumber", "plumbing engineer", "plumbing design",
-        "quantity surveyor", " qs ", " q.s.", "cost consultant", "cost estimator",
-        "hvac engineer", "hvac design", "mechanical engineer", "m&e engineer",
-        "structural engineer", "structural design",
-        "architectural technician", "architectural designer",
-        "project manager", "project engineer",  # unless water-related
-        "site manager", "site engineer",
-        "bim manager", "bim coordinator",  # unless water design
-        "cad technician", "cad draughtsperson",  # too junior
-        "mechanical fitter", "maintenance engineer", "maintenance technician",
-        "apprentice", "graduate trainee", "intern",
-    ]
-
-    # Check title and description for blocked terms
-    for block in BLOCK_KEYWORDS:
-        if block in title_lower:
-            # UNLESS it's combined with water (e.g., "Mechanical Engineer - Water Networks")
-            if "water" not in title_lower and "hydraulic" not in title_lower:
-                log.debug("[BLOCK] Filtered: '%s' contains '%s'", title, block)
+    
+    # ═══════════════════════════════════════════════════════════════
+    #  STEP 1: HARD BLOCK - Instant rejection
+    # ═══════════════════════════════════════════════════════════════
+    for blocked in BLOCKED_TITLE_TERMS:
+        if blocked in title_lower:
+            # Exception: if it's explicitly water-focused, allow it
+            water_context = any(w in title_lower for w in ["water", "hydraulic", "watergems"])
+            if not water_context:
+                log.debug("[BLOCK] '%s' contains '%s'", title[:60], blocked)
                 return -1000
-        # Also check description for electrical/plumbing (common false positives)
-        if block in ["electrical engineer", "electrician", "plumber", "plumbing", "quantity surveyor"]:
-            if block in description.lower()[:200]:  # check first 200 chars
-                if "water" not in title_lower:
-                    log.debug("[BLOCK] Filtered: '%s' — description mentions '%s'", title, block)
-                    return -1000
-
-    # ── STRONG BOOST — Water-specific roles ──────────────────────
-    WATER_BOOST_TERMS = [
-        "water design", "water network", "water infrastructure",
-        "hydraulic design", "hydraulic model", "watergems",
-        "nav engineer", "self-lay", "self lay",
-        "amp8", "amp7", "section 104", "section 185",
-        "thames water", "affinity water", "developer services water",
-    ]
-    for term in WATER_BOOST_TERMS:
-        if term in text:
-            score += 25  # big boost for water-specific
-
-    # Title priority score
-    for t in HIGH_PRIORITY:
-        if t.lower() in text or any(w in text for w in t.lower().split()):
-            score += 30
+    
+    # ═══════════════════════════════════════════════════════════════
+    #  STEP 2: WHITELIST CHECK - Must be water/hydraulic/NAV related
+    # ═══════════════════════════════════════════════════════════════
+    # Job title MUST contain at least ONE required term
+    has_required = False
+    for required in REQUIRED_TITLE_TERMS:
+        if required in title_lower:
+            has_required = True
             break
-    for t in SECONDARY:
-        if t.lower() in text:
-            score += 15
+    
+    # Special case: "utilities" or "infrastructure" alone is NOT enough
+    if not has_required:
+        # Check if it's utilities/infrastructure WITH water context
+        if any(w in title_lower for w in ["utilities", "infrastructure", "civil engineer"]):
+            if any(w in title_lower for w in ["water", "hydraulic"]):
+                has_required = True
+    
+    if not has_required:
+        # Not a water engineering role
+        log.debug("[REJECT] '%s' - no water/hydraulic terms in title", title[:60])
+        return -1000
+    
+    # ═══════════════════════════════════════════════════════════════
+    #  STEP 3: KEYWORD SCORING (only for jobs that passed filters)
+    # ═══════════════════════════════════════════════════════════════
+    score = 50  # Base score for passing whitelist
+    
+    # High priority title matches
+    for priority in HIGH_PRIORITY:
+        if priority.lower() in title_lower:
+            score += 40
             break
-
-    # Skill keyword hits
-    for kw in SKILL_KEYWORDS:
-        if kw.lower() in text:
-            score += 5
-
+    
+    # Secondary title matches
+    for sec in SECONDARY:
+        if sec.lower() in title_lower:
+            score += 20
+            break
+    
+    # Water engineering keywords in description
+    keyword_hits = 0
+    for kw in WATER_ENGINEERING_KEYWORDS:
+        if kw in text:
+            keyword_hits += 1
+            score += 3
+    
+    # Require minimum keyword density
+    if keyword_hits < 3:
+        # Job mentions water in title but description is too generic
+        score -= 30
+        log.debug("[WEAK] '%s' - only %d water keywords in description", title[:60], keyword_hits)
+    
     # Salary match
     if salary_min and salary_max:
         if SALARY_MIN <= salary_max and salary_min <= SALARY_MAX:
             score += 20
     elif salary_min and salary_min >= SALARY_MIN:
         score += 10
-
-    # ── Penalty from your "Not Applied" feedback ──────────────────
-    # Jobs you marked No teach the bot what to avoid
+    
+    # Penalty from user feedback
     if rejected_patterns:
         title_words = rejected_patterns.get("title_words", {})
-        bad_companies = rejected_patterns.get("companies", set())
-
-        # Penalise words that appear frequently in jobs you rejected
-        # Only penalise words seen in 2+ rejected jobs (avoids noise)
         penalty = 0
         for word, count in title_words.items():
             if count >= 2 and word in title_lower:
-                penalty += 10 * count   # stronger penalty the more you reject it
-        if penalty > 0:
-            log.debug("[SCORE] Penalty -%d for '%s' (matches rejected title patterns)", penalty, title)
-            score -= penalty
-
-        # Hard skip flag for companies you consistently reject
-        company_lower = description.lower()  # company name may appear in description
-        for bad_co in bad_companies:
-            if bad_co in title_lower or bad_co in company_lower:
-                score -= 50  # pushes it to bottom of list
-                log.debug("[SCORE] Company penalty for '%s' (previously rejected)", bad_co)
-                break
-
-    return score
-
+                penalty += 10 * count
+        score -= penalty
+    
+    return max(score, 0)  # Never return negative (except -1000 for blocks)
 
 # ═══════════════════════════════════════════════════════════════════
 #  SOURCE 1 — ADZUNA API  (UK + EU)
