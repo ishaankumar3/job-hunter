@@ -97,14 +97,22 @@ SEARCH_QUERIES = [
     "water network engineer",
     "hydraulic engineer water",
     "water infrastructure engineer",
-    "developer services engineer",
-    "NAV water engineer",
-    "clean water engineer",
-    "drainage engineer",
-    "water modeller WaterGEMS",
-    "utilities design engineer water",
-    "self-lay engineer",
-    "water asset engineer",
+    "NAV engineer",
+    "NAV water",
+    "self-lay operator",
+    "self lay water",
+    "developer services water",
+    "water distribution engineer",
+    "WaterGEMS engineer",
+    "hydraulic modeller water",
+    "AMP8 water engineer",
+    "AMP7 water engineer",
+    "clean water design",
+    "water mains design",
+    "Section 104 engineer",
+    "Section 185 water",
+    "Thames Water engineer",
+    "Affinity Water engineer",
 ]
 
 # ── Target locations ───────────────────────────────────────────────
@@ -154,6 +162,49 @@ def score_job(title: str, description: str, salary_min=None, salary_max=None,
     score = 0
     text = f"{title} {description}".lower()
     title_lower = title.lower()
+
+    # ── HARD BLOCK — Completely wrong disciplines ────────────────
+    # Return -1000 to push these to the very bottom (filtered out before email)
+    BLOCK_KEYWORDS = [
+        "electrical engineer", "electrician", "electric ", "electrical design",
+        "plumber", "plumbing engineer", "plumbing design",
+        "quantity surveyor", " qs ", " q.s.", "cost consultant", "cost estimator",
+        "hvac engineer", "hvac design", "mechanical engineer", "m&e engineer",
+        "structural engineer", "structural design",
+        "architectural technician", "architectural designer",
+        "project manager", "project engineer",  # unless water-related
+        "site manager", "site engineer",
+        "bim manager", "bim coordinator",  # unless water design
+        "cad technician", "cad draughtsperson",  # too junior
+        "mechanical fitter", "maintenance engineer", "maintenance technician",
+        "apprentice", "graduate trainee", "intern",
+    ]
+
+    # Check title and description for blocked terms
+    for block in BLOCK_KEYWORDS:
+        if block in title_lower:
+            # UNLESS it's combined with water (e.g., "Mechanical Engineer - Water Networks")
+            if "water" not in title_lower and "hydraulic" not in title_lower:
+                log.debug("[BLOCK] Filtered: '%s' contains '%s'", title, block)
+                return -1000
+        # Also check description for electrical/plumbing (common false positives)
+        if block in ["electrical engineer", "electrician", "plumber", "plumbing", "quantity surveyor"]:
+            if block in description.lower()[:200]:  # check first 200 chars
+                if "water" not in title_lower:
+                    log.debug("[BLOCK] Filtered: '%s' — description mentions '%s'", title, block)
+                    return -1000
+
+    # ── STRONG BOOST — Water-specific roles ──────────────────────
+    WATER_BOOST_TERMS = [
+        "water design", "water network", "water infrastructure",
+        "hydraulic design", "hydraulic model", "watergems",
+        "nav engineer", "self-lay", "self lay",
+        "amp8", "amp7", "section 104", "section 185",
+        "thames water", "affinity water", "developer services water",
+    ]
+    for term in WATER_BOOST_TERMS:
+        if term in text:
+            score += 25  # big boost for water-specific
 
     # Title priority score
     for t in HIGH_PRIORITY:
@@ -810,7 +861,15 @@ def run():
             rejected_patterns=rejected_patterns,
         )
 
+    # Remove hard-blocked jobs (electrical/plumber/QS get score=-1000)
+    before_block = len(fresh_jobs)
+    fresh_jobs = [j for j in fresh_jobs if j["_score"] > 0]
+    blocked = before_block - len(fresh_jobs)
+    if blocked > 0:
+        log.info("[FILTER] Removed %d irrelevant jobs (electrical/plumber/QS/etc)", blocked)
+
     fresh_jobs.sort(key=lambda j: j["_score"], reverse=True)
+    log.info("Jobs scored and ranked: %d remain", len(fresh_jobs))
 
     # ── Filter jobs based on your "Why No" feedback ─────────────
     try:
