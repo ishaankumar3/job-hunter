@@ -26,6 +26,17 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s │ %(levelname)s │ %(message)s")
 log = logging.getLogger(__name__)
 
+# Import strict search profile
+try:
+    from search_profile import (
+        REQUIRED_TITLE_TERMS, BLOCKED_TITLE_TERMS,
+        WATER_ENGINEERING_KEYWORDS, WATER_SEARCH_QUERIES
+    )
+except ImportError as e:
+    log.error("Cannot import search_profile.py: %s", e)
+    log.error("Make sure search_profile.py is in the same directory as job_search.py")
+    sys.exit(1)
+
 # ═══════════════════════════════════════════════════════════════════
 #  CONFIGURATION — edit only if needed
 # ═══════════════════════════════════════════════════════════════════
