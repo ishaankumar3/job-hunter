@@ -29,9 +29,9 @@ log = logging.getLogger(__name__)
 # Import strict search profile
 try:
     from search_profile import (
-        BLOCKED_TITLE_TERMS,
-        WATER_KEYWORDS_HIGH, WATER_KEYWORDS_MEDIUM, WATER_KEYWORDS_LOW,
-        ALL_WATER_KEYWORDS, WATER_SEARCH_QUERIES
+        REQUIRED_TITLE_PATTERNS, BLOCKED_TITLE_TERMS,
+        WATER_DESIGN_KEYWORDS, SEARCH_QUERIES,
+        COUNTRIES, SPONSORSHIP_KEYWORDS
     )
 except ImportError as e:
     log.error("Cannot import search_profile.py: %s", e)
@@ -49,7 +49,7 @@ ADZUNA_APP_ID    = os.environ.get("ADZUNA_APP_ID", "")       # Free from api.adz
 ADZUNA_APP_KEY   = os.environ.get("ADZUNA_APP_KEY", "")      # Free from api.adzuna.com
 REED_API_KEY     = os.environ.get("REED_API_KEY", "")        # Free from reed.co.uk/developers
 SEEN_JOBS_FILE   = "seen_jobs.json"
-JOBS_PER_EMAIL   = 50
+JOBS_PER_EMAIL   = 50  # Minimum 50 jobs
 FETCH_POOL_SIZE  = 200  # relaxed filters, so need less buffer
 SALARY_MIN       = 35000  # lowered to catch more water roles
 SALARY_MAX       = 55000
@@ -90,7 +90,7 @@ ALL_TITLES = HIGH_PRIORITY + SECONDARY
 # Keywords imported from search_profile.py (WATER_ENGINEERING_KEYWORDS)
 
 # ── Search query terms sent to APIs/RSS feeds ──────────────────────
-SEARCH_QUERIES = WATER_SEARCH_QUERIES  # Imported from search_profile.py
+SEARCH_QUERIES = SEARCH_QUERIES  # From search_profile.py  # Imported from search_profile.py
 
 # ── Target locations ───────────────────────────────────────────────
 UK_LOCATIONS   = ["London", "Surrey", "Kent", "Essex", "Hertfordshire", "Berkshire", "Hampshire"]
@@ -174,41 +174,51 @@ def job_id(title: str, company: str, url: str) -> str:
 def score_job(title: str, description: str, salary_min=None, salary_max=None,
               rejected_patterns: dict = None) -> int:
     """
-    BLACKLIST-ONLY: Block garbage, score everything else by water relevance.
-    -1000 = blocked, 0-200 = allowed (higher = more relevant).
+    PRECISE scoring with pattern matching.
+    Returns -1000 for blocked/rejected, 0-300 for relevant jobs.
     """
     text = f"{title} {description}".lower()
     title_lower = title.lower()
     
-    # ═══════════════════════════════════════════════════════════════
-    #  STEP 1: HARD BLOCK - Absolutely wrong jobs
-    # ═══════════════════════════════════════════════════════════════
+    # Helper function for pattern matching
+    def title_matches_pattern(title_lower, patterns):
+        for pattern in patterns:
+            if all(word in title_lower for word in pattern):
+                return True
+        return False
+    
+    # STEP 1: Hard block check
     for blocked in BLOCKED_TITLE_TERMS:
         if blocked in title_lower:
+            # Exception: "network engineer" is OK if "water network" present
+            if blocked == "network engineer" and "water network" in title_lower:
+                continue
+            # Exception: "mechanical engineer" OK if "water" present
+            if "mechanical" in blocked and "water" in title_lower:
+                continue
             log.debug("[BLOCK] '%s' contains '%s'", title[:60], blocked)
             return -1000
     
-    # ═══════════════════════════════════════════════════════════════
-    #  STEP 2: POSITIVE SCORING (Everything else allowed)
-    # ═══════════════════════════════════════════════════════════════
-    score = 10  # Base score (not blocked)
+    # STEP 2: Title pattern matching (REQUIRED)
+    if not title_matches_pattern(title_lower, REQUIRED_TITLE_PATTERNS):
+        log.debug("[REJECT] '%s' - no matching title pattern", title[:60])
+        return -1000
     
-    # High value water keywords (50 points each)
-    for kw in WATER_KEYWORDS_HIGH:
+    # STEP 3: Keyword scoring (passed filters)
+    score = 50  # Base for passing both filters
+    
+    # Water design keywords from dict
+    for keyword, points in WATER_DESIGN_KEYWORDS.items():
+        if keyword in text:
+            score += points
+    
+    # Sponsorship bonus
+    for kw in SPONSORSHIP_KEYWORDS:
         if kw in text:
-            score += 50
+            score += 30
+            break
     
-    # Medium value water keywords (25 points each)
-    for kw in WATER_KEYWORDS_MEDIUM:
-        if kw in text:
-            score += 25
-    
-    # Low value water keywords (10 points each)
-    for kw in WATER_KEYWORDS_LOW:
-        if kw in text:
-            score += 10
-    
-    # Title-specific boosts
+    # Title priority
     for priority in HIGH_PRIORITY:
         if priority.lower() in title_lower:
             score += 40
@@ -220,11 +230,8 @@ def score_job(title: str, description: str, salary_min=None, salary_max=None,
             break
     
     # Salary bonus
-    if salary_min and salary_max:
-        if SALARY_MIN <= salary_max and salary_min <= SALARY_MAX:
-            score += 20
-    elif salary_min and salary_min >= SALARY_MIN:
-        score += 10
+    if salary_min and salary_min >= SALARY_MIN:
+        score += 20
     
     # User feedback penalty
     if rejected_patterns:
