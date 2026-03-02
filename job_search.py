@@ -29,8 +29,9 @@ log = logging.getLogger(__name__)
 # Import strict search profile
 try:
     from search_profile import (
-        REQUIRED_TITLE_TERMS, BLOCKED_TITLE_TERMS,
-        WATER_ENGINEERING_KEYWORDS, WATER_SEARCH_QUERIES
+        BLOCKED_TITLE_TERMS,
+        WATER_KEYWORDS_HIGH, WATER_KEYWORDS_MEDIUM, WATER_KEYWORDS_LOW,
+        ALL_WATER_KEYWORDS, WATER_SEARCH_QUERIES
     )
 except ImportError as e:
     log.error("Cannot import search_profile.py: %s", e)
@@ -49,8 +50,8 @@ ADZUNA_APP_KEY   = os.environ.get("ADZUNA_APP_KEY", "")      # Free from api.adz
 REED_API_KEY     = os.environ.get("REED_API_KEY", "")        # Free from reed.co.uk/developers
 SEEN_JOBS_FILE   = "seen_jobs.json"
 JOBS_PER_EMAIL   = 50
-FETCH_POOL_SIZE  = 300  # fetch this many before filtering to guarantee 50 after
-SALARY_MIN       = 42000
+FETCH_POOL_SIZE  = 200  # relaxed filters, so need less buffer
+SALARY_MIN       = 35000  # lowered to catch more water roles
 SALARY_MAX       = 55000
 
 # ── Target job titles (high priority first) ────────────────────────
@@ -173,96 +174,66 @@ def job_id(title: str, company: str, url: str) -> str:
 def score_job(title: str, description: str, salary_min=None, salary_max=None,
               rejected_patterns: dict = None) -> int:
     """
-    STRICT scoring for water engineering roles only.
-    Returns -1000 for blocked jobs, 0+ for relevant jobs.
+    BLACKLIST-ONLY: Block garbage, score everything else by water relevance.
+    -1000 = blocked, 0-200 = allowed (higher = more relevant).
     """
     text = f"{title} {description}".lower()
     title_lower = title.lower()
     
     # ═══════════════════════════════════════════════════════════════
-    #  STEP 1: HARD BLOCK - Instant rejection
+    #  STEP 1: HARD BLOCK - Absolutely wrong jobs
     # ═══════════════════════════════════════════════════════════════
     for blocked in BLOCKED_TITLE_TERMS:
         if blocked in title_lower:
-            # Exception: if it's explicitly water-focused, allow it
-            water_context = any(w in title_lower for w in ["water", "hydraulic", "watergems"])
-            if not water_context:
-                log.debug("[BLOCK] '%s' contains '%s'", title[:60], blocked)
-                return -1000
+            log.debug("[BLOCK] '%s' contains '%s'", title[:60], blocked)
+            return -1000
     
     # ═══════════════════════════════════════════════════════════════
-    #  STEP 2: WHITELIST CHECK - Must be water/hydraulic/NAV related
+    #  STEP 2: POSITIVE SCORING (Everything else allowed)
     # ═══════════════════════════════════════════════════════════════
-    # Job title MUST contain at least ONE required term
-    has_required = False
-    for required in REQUIRED_TITLE_TERMS:
-        if required in title_lower:
-            has_required = True
-            break
+    score = 10  # Base score (not blocked)
     
-    # Special case: "utilities" or "infrastructure" alone is NOT enough
-    if not has_required:
-        # Check if it's utilities/infrastructure WITH water context
-        if any(w in title_lower for w in ["utilities", "infrastructure", "civil engineer"]):
-            if any(w in title_lower for w in ["water", "hydraulic"]):
-                has_required = True
+    # High value water keywords (50 points each)
+    for kw in WATER_KEYWORDS_HIGH:
+        if kw in text:
+            score += 50
     
-    if not has_required:
-        # Not a water engineering role
-        log.debug("[REJECT] '%s' - no water/hydraulic terms in title", title[:60])
-        return -1000
+    # Medium value water keywords (25 points each)
+    for kw in WATER_KEYWORDS_MEDIUM:
+        if kw in text:
+            score += 25
     
-    # ═══════════════════════════════════════════════════════════════
-    #  STEP 3: KEYWORD SCORING (only for jobs that passed filters)
-    # ═══════════════════════════════════════════════════════════════
-    score = 50  # Base score for passing whitelist
+    # Low value water keywords (10 points each)
+    for kw in WATER_KEYWORDS_LOW:
+        if kw in text:
+            score += 10
     
-    # High priority title matches
+    # Title-specific boosts
     for priority in HIGH_PRIORITY:
         if priority.lower() in title_lower:
             score += 40
             break
     
-    # Secondary title matches
     for sec in SECONDARY:
         if sec.lower() in title_lower:
             score += 20
             break
     
-    # Water engineering keywords in description
-    keyword_hits = 0
-    for kw in WATER_ENGINEERING_KEYWORDS:
-        if kw in text:
-            keyword_hits += 1
-            score += 3
-    
-    # Require minimum keyword density
-    if keyword_hits < 3:
-        # Job mentions water in title but description is too generic
-        score -= 30
-        log.debug("[WEAK] '%s' - only %d water keywords in description", title[:60], keyword_hits)
-    
-    # Salary match
+    # Salary bonus
     if salary_min and salary_max:
         if SALARY_MIN <= salary_max and salary_min <= SALARY_MAX:
             score += 20
     elif salary_min and salary_min >= SALARY_MIN:
         score += 10
     
-    # Penalty from user feedback
+    # User feedback penalty
     if rejected_patterns:
         title_words = rejected_patterns.get("title_words", {})
-        penalty = 0
         for word, count in title_words.items():
             if count >= 2 and word in title_lower:
-                penalty += 10 * count
-        score -= penalty
+                score -= 10 * count
     
-    return max(score, 0)  # Never return negative (except -1000 for blocks)
-
-# ═══════════════════════════════════════════════════════════════════
-#  SOURCE 1 — ADZUNA API  (UK + EU)
-# ═══════════════════════════════════════════════════════════════════
+    return max(score, 0)
 
 def fetch_adzuna_uk() -> list:
     if not ADZUNA_APP_ID or not ADZUNA_APP_KEY:
@@ -868,7 +839,7 @@ def run():
 
     # Remove hard-blocked jobs (electrical/plumber/QS get score=-1000)
     before_block = len(fresh_jobs)
-    fresh_jobs = [j for j in fresh_jobs if j["_score"] > 0]
+    fresh_jobs = [j for j in fresh_jobs if j["_score"] > -100]  # Only remove hard blocks (-1000)
     blocked = before_block - len(fresh_jobs)
     if blocked > 0:
         log.info("[FILTER] Removed %d irrelevant jobs (electrical/plumber/QS/etc)", blocked)
