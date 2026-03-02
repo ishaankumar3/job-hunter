@@ -1,167 +1,154 @@
 #!/usr/bin/env python3
 """
-Ishaan Kumar's exact job profile - strict matching only.
-Based on CV V10: Water Design Engineer (NAV/Self-Lay specialist).
+BLACKLIST-ONLY approach: Block garbage, score everything else.
+Get 40-50 jobs instead of 9.
 """
 
 # ═══════════════════════════════════════════════════════════════════
-#  WHITELIST - Job title MUST contain at least ONE of these
-# ═══════════════════════════════════════════════════════════════════
-
-REQUIRED_TITLE_TERMS = [
-    # Core water terms
-    "water design", "water network", "water distribution", "water infrastructure",
-    "water engineer", "water supply", "water mains", "water utilities",
-    "clean water", "potable water",
-    
-    # Hydraulic terms  
-    "hydraulic engineer", "hydraulic model", "hydraulic design",
-    "watergems", "infoworks",
-    
-    # NAV/Developer Services
-    "nav engineer", "nav design", "self-lay", "self lay", "slp engineer",
-    "developer services",
-    
-    # Utilities (ONLY if water is also mentioned)
-    "utilities design engineer", "utilities engineer",
-    
-    # Civil (ONLY if water context clear)
-    "civil engineer water", "civil water", "utilities civil",
-]
-
-# ═══════════════════════════════════════════════════════════════════
-#  HARD BLOCK - Job is REJECTED if title contains ANY of these
+#  HARD BLOCK - These are NEVER relevant
 # ═══════════════════════════════════════════════════════════════════
 
 BLOCKED_TITLE_TERMS = [
-    # Electrical/Power
-    "electrical", "electrician", "power engineer", "hv engineer", "lv engineer",
-    "substation", "switchgear", "transformer", "generator",
-    "control & instrumentation", "c&i engineer", "scada", "plc", "automation",
+    # Electrical/Power (unless explicitly water-related)
+    "electrical design engineer", "electrical engineer", "electrician",
+    "power engineer", "hv engineer", "lv engineer", "substation",
+    "c&i engineer", "scada engineer", "plc engineer", "controls engineer",
     
-    # Plumbing/HVAC/MEP
-    "plumber", "plumbing", "hvac", "heating", "ventilation", "air conditioning",
-    "m&e engineer", "mep engineer", "mechanical engineer", "building services",
+    # Plumbing/HVAC (unless explicitly water network design)
+    "plumber", "plumbing engineer", "plumbing design",
+    "hvac engineer", "hvac design", "heating engineer",
+    "m&e engineer", "mep engineer", "mep design",
+    "mechanical engineer", "mechanical design engineer",
+    "building services engineer",
     
     # IT/Software
-    "software", "linux", "devops", "cloud", "network engineer", "systems engineer",
-    "it engineer", "data engineer", "full stack", "backend", "frontend",
+    "software engineer", "software developer", "linux engineer",
+    "devops engineer", "cloud engineer", "it engineer",
+    "it systems engineer", "systems administrator", "sysadmin", "it network engineer", "network administrator", "data engineer",
+    "full stack", "backend", "frontend",
     
-    # Wrong infrastructure
-    "highways", "road", "transport", "railway", "rail", "bridge", "structural",
-    "geotechnical", "tunnelling", "mining",
-    
-    # Wrong water type
-    "wastewater treatment plant", "sewage treatment", "water treatment operator",
-    "wwtw operator", "wtp operator", "treatment plant operator",
-    
-    # Materials/Manufacturing
-    "composite", "materials engineer", "manufacturing", "production engineer",
-    "r&d engineer", "test engineer", "quality engineer",
+    # Wrong infrastructure type
+    "highways engineer", "road engineer", "transport engineer",
+    "railway engineer", "rail engineer", "bridge engineer",
+    "structural engineer", "geotechnical engineer",
     
     # Building systems
-    "escalator", "lift engineer", "elevator", "fire systems", "sprinkler",
-    "security systems", "access control", "building automation",
+    "escalator engineer", "lift engineer", "elevator engineer",
+    "fire engineer", "fire systems", "sprinkler engineer",
+    "security engineer", "access control",
     
-    # Commercial
-    "quantity surveyor", "qs ", " qs", "cost consultant", "estimator",
-    "commercial manager", "procurement", "contracts manager",
+    # Manufacturing/Materials
+    "composite engineer", "materials engineer", "composites engineer",
+    "manufacturing engineer", "production engineer",
+    "process engineer", "r&d engineer", "test engineer",
+    
+    # Commercial/Construction Management
+    "quantity surveyor", " qs ", "cost consultant", "estimator",
+    "commercial manager", "contracts manager", "procurement",
+    "project manager", "programme manager", "construction manager",
+    "site manager",
     
     # Operations/Maintenance
-    "maintenance engineer", "maintenance technician", "mechanic", "fitter",
-    "pipe fitter", "welder", "fabricator", "operator", "technician",
+    "maintenance engineer", "maintenance technician", "mechanic",
+    "pipe fitter", "fitter", "welder", "fabricator",
+    "operator", "plant operator", "technician",
     
     # Too junior
-    "apprentice", "intern", "trainee", "graduate trainee", "work experience",
+    "apprentice", "trainee", "intern", "graduate trainee",
+    "graduate engineer", "graduate water", "graduate civil",
+    "graduate hydraulic", "graduate design", "graduate role",
+    "junior engineer", "junior water", "junior designer",
+    "junior hydraulic", "junior civil",
     
-    # Management (too senior or wrong focus)
-    "construction manager", "site manager", "project manager",
-    "programme manager", "director", "head of",
+    # Too senior (3.5 years experience = mid-level, not senior)
+    "senior engineer", "senior water", "senior civil", "senior design",
+    "senior hydraulic", "senior infrastructure", "senior utilities",
+    "senior designer", "senior modeller", "senior consultant",
+    "principal engineer", "principal water", "principal civil",
+    "lead engineer", "lead water", "lead designer",
+    "chief engineer", "chief water", "chief hydraulic", "head of", "director", "associate director",
 ]
 
 # ═══════════════════════════════════════════════════════════════════
-#  POSITIVE KEYWORDS - Boost score if these appear in description
+#  POSITIVE SCORING - Water engineering keywords
 # ═══════════════════════════════════════════════════════════════════
 
-WATER_ENGINEERING_KEYWORDS = [
-    # Software/Tools
-    "watergems", "infoworks", "autocad", "revit", "civil 3d", "arcgis",
-    "microstation", "navisworks", "infraworks",
-    
-    # Technical
-    "hydraulic modelling", "hydraulic analysis", "network modelling",
-    "pressure analysis", "flow analysis", "fire flow", "hazen williams",
-    "pipe sizing", "pipe network", "network calibration", "demand allocation",
-    "bulk supply", "service reservoir", "pumping station",
-    
-    # UK Water Companies
-    "thames water", "affinity water", "south east water", "wessex water",
-    "anglian water", "united utilities", "yorkshire water", "severn trent",
-    "southern water", "south west water", "northumbrian water", "welsh water",
-    
-    # Regulatory
-    "section 104", "section 185", "section 38", "section 278",
-    "sewers for adoption", "sfa", "water for adoption", "wras", "dwi", "ofwat",
-    "cdm 2015", "developer services", "technical approval", "water uk",
-    
-    # Project types
-    "nav", "self-lay", "self lay", "slp", "new appointments", "variations",
-    "water adoption", "asset adoption", "new connections",
-    "amp7", "amp8", "amp programme", "capital delivery",
-    
-    # Design work
-    "water network design", "water distribution", "water mains design",
-    "concept design", "detailed design", "feasibility", "optioneering",
-    "technical approval", "construction drawings", "as-built",
-    
-    # Development types
-    "residential", "housing", "mixed-use", "development", "infrastructure upgrade",
+WATER_KEYWORDS_HIGH = [
+    # Direct water design (50 points each)
+    "water design", "water network design", "water mains design",
+    "water distribution", "water infrastructure design",
+    "hydraulic design", "hydraulic modelling", "watergems",
+    "nav engineer", "self-lay", "developer services water",
 ]
 
+WATER_KEYWORDS_MEDIUM = [
+    # Water context (25 points each)
+    "water engineer", "water network", "water supply", "water infrastructure",
+    "hydraulic engineer", "hydraulic", "clean water", "potable water",
+    "water utilities", "water asset", "water mains",
+    "section 104", "section 185", "section 38", "amp7", "amp8",
+]
+
+WATER_KEYWORDS_LOW = [
+    # Technical terms (10 points each)
+    "watergems", "infoworks", "water modelling", "pipe network",
+    "pressure analysis", "flow analysis", "fire flow",
+    "thames water", "affinity water", "severn trent",
+    "anglian water", "united utilities", "yorkshire water",
+    "sewers for adoption", "sfa", "wras", "dwi",
+    "nav", "self lay", "adoption", "technical approval",
+]
+
+# Combine for iteration
+ALL_WATER_KEYWORDS = WATER_KEYWORDS_HIGH + WATER_KEYWORDS_MEDIUM + WATER_KEYWORDS_LOW
+
 # ═══════════════════════════════════════════════════════════════════
-#  SEARCH QUERIES - Only water-specific searches
+#  SEARCH QUERIES - Cast wide net
 # ═══════════════════════════════════════════════════════════════════
 
 WATER_SEARCH_QUERIES = [
-    # Core exact matches
+    # Core searches
+    "water engineer UK",
     "water design engineer",
     "water network engineer",
-    "water distribution engineer",
-    "water infrastructure engineer",
-    
-    # Hydraulic specialist
+    "hydraulic engineer UK",
     "hydraulic engineer water",
-    "hydraulic modeller water",
     "watergems engineer",
-    "water network modeller",
+    
+    # Civil/utilities with water
+    "civil engineer water",
+    "utilities engineer water",
+    "infrastructure engineer water",
+    "design engineer water",
     
     # NAV/Developer Services
-    "NAV engineer water",
-    "NAV design engineer",
+    "NAV engineer",
     "self-lay engineer",
-    "self-lay operator",
-    "developer services water",
+    "developer services engineer",
     
-    # AMP programmes
-    "AMP8 water engineer",
-    "AMP7 water engineer",
-    "AMP water engineer",
-    "capital delivery water",
-    
-    # Specific work types
-    "water mains design",
-    "section 104 engineer",
-    "section 185 water",
-    "water adoption engineer",
-    
-    # Company-specific
+    # Specific companies
     "thames water engineer",
     "affinity water engineer",
-    "water utilities engineer",
+    "severn trent engineer",
+    "anglian water engineer",
+    "united utilities engineer",
+    "yorkshire water engineer",
+    "southern water engineer",
     
-    # UK water roles
-    "clean water engineer UK",
-    "potable water engineer",
-    "water supply engineer",
+    # AMP programmes
+    "AMP8 engineer",
+    "AMP7 engineer",
+    "water capital delivery",
+    
+    # Technical roles
+    "water infrastructure",
+    "water distribution",
+    "section 104 engineer",
+    "water adoption",
+    
+    # Broader searches (to get more results)
+    "water UK",
+    "hydraulic UK",
+    "utilities water",
+    "civil water",
 ]
-
